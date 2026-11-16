@@ -68,3 +68,51 @@ export async function api(path, { method = 'GET', body } = {}) {
   }
   return data
 }
+
+// 한 줄에 JSON 하나씩 흘러오는 응답(/correct)을 받는다. 줄이 올 때마다 onEvent(객체)를 부른다.
+export async function apiStream(path, body, onEvent) {
+  const headers = { 'Content-Type': 'application/json' }
+  const token = getToken()
+  if (token) headers['X-User-Token'] = token
+  let res
+  try {
+    res = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) })
+  } catch {
+    throw new ApiError(0, '서버에 연결하지 못했어요. 잠시 후 다시 해 주세요.')
+  }
+  if (!res.ok || !res.body) throw new ApiError(res.status, '요청을 처리하지 못했어요.')
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+    let i
+    while ((i = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, i).trim()
+      buffer = buffer.slice(i + 1)
+      if (line) onEvent(JSON.parse(line))
+    }
+    if (done) break
+  }
+}
+
+// 화면 동작 기록: 무엇을 눌렀는지를 서버의 logs/ui_날짜.log 로 보낸다 (backend/devlog.py).
+// 결과를 기다리지 않고, 실패해도 무시한다. 문장 내용은 보내지 않는다 (번호 · 개수 · 고른 항목만).
+const SESSION_ID = Math.random().toString(36).slice(2, 10) // 화면을 연 한 번을 묶는 번호
+
+export function track(event, data, page = 'app') {
+  try {
+    const headers = { 'Content-Type': 'application/json' }
+    const token = getToken()
+    if (token) headers['X-User-Token'] = token
+    fetch('/log/ui', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ event, sid: SESSION_ID, page, data: data || null }),
+      keepalive: true,
+    }).catch(() => {})
+  } catch {
+    // 기록을 못 해도 화면은 그대로
+  }
+}

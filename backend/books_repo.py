@@ -345,10 +345,17 @@ def open_entry(user_id, book_id, day=None):
                 "INSERT INTO entries (book_id, diary_date, status, created_at) VALUES (:b, :d, 'writing', :now)",
                 {"b": book_id, "d": diary_date, "now": _now_str()})
             return eid, True
-        except db.Conflict:                      # 동시에 다른 곳에서 먼저 만들었다면 그 글을 연다
-            return find(tx)[0]["id"], False
+        except db.Conflict:                      # 같은 글을 다른 요청이 동시에 먼저 만들었다 → 아래에서 그 글을 찾아 연다
+            return None, False
 
     eid, created = db.run_in_transaction(work)
+    if eid is None:
+        # 여기서 다시 찾는 이유: MySQL 은 트랜잭션이 시작될 때의 모습만 보여 줘서, 위 트랜잭션 안에서는
+        # 방금 다른 요청이 만든 글이 보이지 않는다 (예전에는 여기서 '목록이 비었다'는 오류로 500 이 났다).
+        rows = db.run_in_transaction(find)
+        if not rows:
+            raise db.DBUnavailable("글을 여는 중에 문제가 생겼어요. 잠시 후 다시 해 주세요.")
+        eid = rows[0]["id"]
     return {"created": created, **get_entry(user_id, eid)}
 
 
