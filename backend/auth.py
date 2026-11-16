@@ -44,6 +44,14 @@ def find_user_by_token(token):
     return rows[0] if rows else None
 
 
+def token_from_scope(scope):
+    """ASGI 요청(scope)의 헤더에서 X-User-Token 값을 꺼낸다. 없으면 None. (DB는 묻지 않는다)"""
+    for key, value in scope.get("headers") or []:
+        if key == TOKEN_HEADER:
+            return value.decode("latin-1").strip() or None
+    return None
+
+
 class UserTokenMiddleware:
     """요청 헤더의 X-User-Token 을 꺼내 current_token() 으로 읽을 수 있게 해 둔다.
     (순수 ASGI 미들웨어: 요청 본문을 건드리지 않아서 /correct 같은 스트리밍 응답에도 영향이 없다)"""
@@ -55,12 +63,7 @@ class UserTokenMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        token = None
-        for key, value in scope.get("headers") or []:
-            if key == TOKEN_HEADER:
-                token = value.decode("latin-1").strip() or None
-                break
-        reset = _token.set(token)
+        reset = _token.set(token_from_scope(scope))
         try:
             await self.app(scope, receive, send)
         finally:

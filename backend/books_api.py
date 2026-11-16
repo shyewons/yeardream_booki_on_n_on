@@ -13,12 +13,14 @@
   POST /api/entries/{entry_id}/sentences/{seq}/move     문장 순서 바꾸기  body: {"to": 3}
   POST /api/entries/{entry_id}/complete           '이야기 저장하기' (상태 done)
 
-DB에 닿지 못하면 503, 책이나 글이 없거나 내 것이 아니면 404, 요청 내용이 맞지 않으면 400 을 돌려준다.
+DB에 닿지 못하면 503, 책이나 글이 없거나 내 것이 아니면 404, 요청 내용이 맞지 않으면 400,
+X-User-Token 헤더의 토큰이 맞지 않으면 401 을 돌려준다 (auth.py).
 """
 import datetime
 
 from fastapi import APIRouter, Body, HTTPException, Query
 
+import auth
 import books_repo as repo
 import db
 import devlog
@@ -30,6 +32,9 @@ def _guard(fn, *args):
     """DB 쪽 문제(설정 없음, 연결 실패, 더미 사용자 없음)를 503 으로 바꿔 준다. 문제는 로그(error / action)에도 남긴다."""
     try:
         return fn(*args)
+    except auth.InvalidToken as e:                       # 토큰이 틀림 → 화면이 01번 별명 화면으로 보낸다
+        devlog.write("action", "rejected", {"call": getattr(fn, "__name__", ""), "reason": "invalid_token"})
+        raise HTTPException(status_code=401, detail=str(e))
     except (db.DBNotConfigured, db.DBUnavailable, repo.NoUser) as e:
         devlog.error("db", e, {"call": getattr(fn, "__name__", "")})
         raise HTTPException(status_code=503, detail=str(e))

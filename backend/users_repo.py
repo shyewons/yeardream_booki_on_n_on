@@ -39,7 +39,8 @@ def clean_nickname(nickname):
     """검사를 통과한 별명을 돌려준다. 안 되면 BadNickname."""
     if not isinstance(nickname, str):
         raise BadNickname("별명을 적어 주세요.")
-    # 맥/아이패드에서 'ㅂㅗㄱ' 처럼 자모가 풀려서 오는 것을 '복'으로 합친다
+    # 맥/아이패드에서 한 글자가 자모로 풀린 채(조합형) 오는 것을 완성형 한 글자로 합친다
+    # (키보드로 친 'ㅂㅗㄱ' 같은 낱자는 합치지 않는다 → 아래 글자 규칙에서 막힌다)
     nickname = unicodedata.normalize("NFC", nickname).strip()
     if not nickname:
         raise BadNickname("별명을 적어 주세요.")
