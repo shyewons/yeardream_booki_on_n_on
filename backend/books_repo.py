@@ -8,6 +8,7 @@ import datetime
 import json
 import os
 
+import auth
 import db
 
 # 한 쪽에 몇 개를 줄지 (환경변수/.env 로 바꿀 수 있다)
@@ -40,15 +41,14 @@ def _now_str():
     return now_kst().strftime("%Y-%m-%d %H:%M:%S")
 
 
-# ── 지금 누구인지 (로그인이 붙기 전까지는 더미 사용자 한 명으로 고정) ─────────────
-# 나중에 별명+토큰이 붙으면 이 함수 한 곳만 '요청의 토큰으로 사용자 찾기'로 바꾸면 된다.
+# ── 지금 누구인지 ───────────────────────────────────────────────────────────
+# 요청 헤더 X-User-Token 이 있으면 요청마다 그 토큰의 주인을 DB에서 찾는다 (auth.py). 회원별로 자기 목장 · 책만 보인다.
+# 토큰 없이 온 요청은 예전처럼 더미 사용자 한 명으로 처리한다 (frontend/temp 시험용 화면 호환). ALLOW_DUMMY_USER=0 이면 401.
 _NICKNAME = os.environ.get("DUMMY_NICKNAME", "dummy_user")
-_user_id = None          # ★ 주의: 찾은 사용자 번호를 서버 전체에서 기억한다. 사용자가 한 명(더미)일 때만 안전하다.
-                         #   로그인을 붙일 때 이 기억을 반드시 없애고, 요청마다 토큰으로 사용자를 찾아야 한다.
-                         #   그대로 두면 처음 접속한 사람의 번호가 모든 요청에 쓰여 남의 목장이 보이게 된다.
+_user_id = None          # 더미 사용자 번호만 서버 전체에서 기억한다 (토큰 사용자는 기억하지 않고 요청마다 찾는다)
 
 
-def current_user_id():
+def _dummy_user_id():
     global _user_id
     if _user_id is None:
         rows = db.query("SELECT id FROM users WHERE nickname = :n", {"n": _NICKNAME})
@@ -58,15 +58,31 @@ def current_user_id():
     return _user_id
 
 
+def _current_user():
+    """지금 요청의 사용자 {"id", "nickname"}. 토큰이 틀렸거나, 토큰 없이 왔는데 더미를 안 쓰면 auth.InvalidToken (→ 401)."""
+    token = auth.current_token()
+    if token:
+        user = auth.find_user_by_token(token)
+        if user is None:
+            raise auth.InvalidToken("별명 정보를 찾을 수 없어요. 별명을 다시 만들어 주세요.")
+        return user
+    if not auth.ALLOW_DUMMY_USER:
+        raise auth.InvalidToken("별명을 먼저 만들어 주세요.")
+    return {"id": _dummy_user_id(), "nickname": _NICKNAME}
+
+
+def current_user_id():
+    return _current_user()["id"]
+
+
 def known_user_id():
-    """이미 알아낸 사용자 번호 (DB를 새로 묻지 않는다). 아직 모르면 None. 로그에 사용자 번호를 붙일 때 쓴다."""
+    """이미 알아낸 더미 사용자 번호 (DB를 새로 묻지 않는다). 아직 모르면 None. 토큰 없이 온 요청의 로그에 쓴다."""
     return _user_id
 
 
 def current_nickname():
-    """화면 제목('○○의 목장')에 쓰는 별명. 로그인이 붙으면 current_user_id 와 함께 바꾼다."""
-    current_user_id()
-    return _NICKNAME
+    """화면 제목('○○의 목장')에 쓰는 별명."""
+    return _current_user()["nickname"]
 
 
 # ── 도우미 ──────────────────────────────────────────────────────────────────

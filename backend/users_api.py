@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, HTTPException
 
 import auth
 import db
+import devlog
 import users_repo
 
 router = APIRouter(prefix="/api/users")
@@ -38,4 +39,5 @@ def me():
         raise HTTPException(status_code=503, detail=str(e))
     if user is None:
         raise HTTPException(status_code=401, detail="별명 정보를 찾을 수 없어요. 별명을 다시 만들어 주세요.")
+    devlog.set_user(user["id"])                    # 이 요청의 로그에 사용자 번호를 붙인다
     return {"nickname": user["nickname"]}

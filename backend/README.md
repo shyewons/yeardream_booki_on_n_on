@@ -20,8 +20,10 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | 파일 | 하는 일 |
 |---|---|
 | `main.py` | 서버 시작점. 아래 라우터를 붙인다 |
+| `auth.py` | 요청 헤더 `X-User-Token`으로 지금 사용자 정하기 (토큰은 해시로만 저장) |
+| `users_api.py` · `users_repo.py` | `/api/users` 별명 만들기·토큰 확인, 별명 검사 |
 | `books_api.py` | `/api/...` 주소 (책·글 목록, 글 열기, 문장 저장·끼워 넣기·순서 바꾸기, 이야기 저장) |
-| `books_repo.py` | 위 주소가 쓰는 DB 쿼리. 쪽당 개수, 더미 사용자, 시간(KST) 규칙 |
+| `books_repo.py` | 위 주소가 쓰는 DB 쿼리. 지금 사용자(토큰 주인 또는 더미), 쪽당 개수, 시간(KST) 규칙 |
 | `db.py` | `.env` 읽기, DB 접속 |
 | `writing_api.py` | `/question` `/topics` `/validate` `/correct` `/suggest` (예전 시연용 `app.py`) |
 | `demo_nodes.py` | 모델 없이 돌릴 때 쓰는 임시 노드, 동화 표현 추천 임시 낱말표 |
@@ -35,6 +37,8 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | 주소 | 설명 |
 |---|---|
 | `GET /health` | 상태 확인 |
+| `POST /api/users` | 별명 만들기 + 토큰 발급 `{"nickname": "몽실이"}` → `{"token", "nickname"}`. 규칙 위반 400, 중복 409 |
+| `GET /api/users/me` | 토큰 확인 → `{"nickname"}`. 토큰 없음·틀림 401 |
 | `GET /api/books?page=1` | 목장(책 목록, 최근에 만든 책부터, 한 쪽 6권). 응답에 별명 `owner` |
 | `POST /api/books` | 책 만들기 `{"kind": "diary"\|"fairy", "title": "몽실"}` |
 | `GET /api/books/{책}/entries?page=1` | 글 목록(최신 날짜부터, 한 쪽 10개). `writing`: 쓰던 글 |
@@ -52,7 +56,8 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `POST /suggest` | 동화 표현 추천(임시) `{"sentence"}` |
 | `POST /log/ui` | 화면 동작 기록 `{"event", "sid", "page", "data"}` |
 
-공통: 없는 것·남의 것 404, 잘못된 요청 400, DB 미설정·접속 실패 503. 사용자는 지금 더미 한 명(`dummy_user`)이고, 로그인이 붙으면 `books_repo.current_user_id()`만 바꾼다.
+공통: 없는 것·남의 것 404, 잘못된 요청 400, 토큰 틀림 401, DB 미설정·접속 실패 503.
+사용자: 요청 헤더 `X-User-Token`의 토큰 주인(`auth.py`)이고, 자기 목장·책만 보인다. 토큰 없이 오면 더미 한 명(`dummy_user`)으로 처리한다(시험용 화면 호환). 끄려면 `ALLOW_DUMMY_USER=0`.
 
 ## 설정을 고치는 곳
 
@@ -66,7 +71,7 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 
 화면에는 보이지 않고 `backend/logs/`에 종류별·날짜별 파일로 쌓인다 (한 줄 = JSON 하나, `{"time", "user", "label", "data"}`). 깃에는 올라가지 않는다.
 
-`user`는 그 요청을 보낸 사용자의 번호(`users.id`)다. 별명은 적지 않는다. 서버 시작 기록이나 사용자를 알기 전의 요청은 `null`이다. 지금은 더미 사용자 한 명이고, 로그인이 붙으면 `main.py`의 `devlog.user_lookup` 한 줄만 바꾸면 모든 로그에 반영된다.
+`user`는 그 요청을 보낸 사용자의 번호(`users.id`)다. 별명은 적지 않는다. 서버 시작 기록이나 사용자를 알기 전의 요청은 `null`이다. 토큰 없이 온 요청은 더미 사용자 번호가, 토큰이 있는 요청은 사용자를 찾은 뒤(`books_api` · `users_api`의 `devlog.set_user`) 그 번호가 붙는다. 별명 만들기 요청처럼 사용자를 찾기 전에 끝나는 요청은 `null`이다.
 
 | 파일 | 내용 |
 |---|---|

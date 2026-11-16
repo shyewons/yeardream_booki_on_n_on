@@ -12,7 +12,8 @@
 
 주소 묶음
   /health                      상태 확인
-  /api/...                     책 · 글 목록과 저장 (books_api.py → books_repo.py → db.py)
+  /api/users                   별명 만들기 · 토큰 확인 (users_api.py → users_repo.py). 사용자 구분은 헤더 X-User-Token (auth.py)
+  /api/...                     책 · 글 목록과 저장 (books_api.py → books_repo.py → db.py). 토큰 주인의 책만 보인다
   /question /topics /validate /correct /suggest      글쓰기: 질문 · 검사 · 교정 · 표현 추천 (writing_api.py)
   /log/ui                      화면 동작 기록 (devlog.py). 로그는 backend/logs/ 에 종류별로 쌓인다
   / , /books                   (임시) frontend/temp 의 시험용 화면. React 화면이 완성되면 proto_pages.py 와 아래 두 줄을 지운다
@@ -24,7 +25,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 import db                                  # 가장 먼저: backend/.env 를 읽어 환경변수로 넣는다 (아래 파일들이 불러올 때 설정을 읽는다)
+import auth
+from auth import UserTokenMiddleware
 from books_api import router as books_router
+from users_api import router as users_router
 import books_repo
 import devlog
 import writing_api
@@ -47,12 +51,14 @@ async def lifespan(app):
     devlog.write("server", "stop", None)
 
 
-# 로그에 붙일 사용자 번호: 지금은 더미 사용자 한 명 (이미 알아낸 번호를 쓰고, DB를 새로 묻지 않는다).
-# ★ 로그인이 붙으면 이 한 줄을 '요청(scope)의 토큰 → 사용자 번호' 함수로 바꾼다.
-devlog.user_lookup = lambda scope: books_repo.known_user_id()
+# 로그에 붙일 사용자 번호 (요청이 들어올 때 DB를 묻지 않는다).
+#   토큰 없이 온 요청 → 이미 알아낸 더미 사용자 번호
+#   토큰이 있는 요청  → 처음엔 '모름'. books_api / users_api 가 토큰으로 사용자를 찾은 뒤 devlog.set_user 로 채운다
+devlog.user_lookup = lambda scope: None if auth.token_from_scope(scope) else books_repo.known_user_id()
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(devlog.RequestLog)     # 모든 요청을 logs/request_날짜.log 에 적는다 (경로 · 응답 코드 · 걸린 시간)
+app.add_middleware(UserTokenMiddleware)   # 요청 헤더 X-User-Token → auth.current_token() (books_repo 가 회원을 찾을 때 쓴다)
 
 
 # api 상태 확인용 테스트 코드
@@ -61,6 +67,7 @@ def health():
     return {"status": "ok"}
 
 
+app.include_router(users_router)          # /api/users  (별명 만들기 · 토큰 확인)
 app.include_router(books_router)          # /api/...
 app.include_router(writing_router)        # /question /topics /validate /correct /suggest
 app.include_router(devlog.router)         # /log/ui
