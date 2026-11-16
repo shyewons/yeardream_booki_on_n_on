@@ -24,6 +24,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 import db                                  # 가장 먼저: backend/.env 를 읽어 환경변수로 넣는다 (아래 파일들이 불러올 때 설정을 읽는다)
+from auth import UserTokenMiddleware
+from users_api import router as users_router
 from books_api import router as books_router
 import books_repo
 import devlog
@@ -52,6 +54,7 @@ async def lifespan(app):
 devlog.user_lookup = lambda scope: books_repo.known_user_id()
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(UserTokenMiddleware)
 app.add_middleware(devlog.RequestLog)     # 모든 요청을 logs/request_날짜.log 에 적는다 (경로 · 응답 코드 · 걸린 시간)
 
 
@@ -64,6 +67,7 @@ def health():
 app.include_router(books_router)          # /api/...
 app.include_router(writing_router)        # /question /topics /validate /correct /suggest
 app.include_router(devlog.router)         # /log/ui
+app.include_router(users_router)          # /users
 
 from proto_pages import router as proto_router        # (임시) 시험용 화면  ← React 화면이 완성되면 이 두 줄과 proto_pages.py 삭제
 app.include_router(proto_router)
