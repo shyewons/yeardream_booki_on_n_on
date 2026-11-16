@@ -43,7 +43,9 @@ def _now_str():
 # ── 지금 누구인지 (로그인이 붙기 전까지는 더미 사용자 한 명으로 고정) ─────────────
 # 나중에 별명+토큰이 붙으면 이 함수 한 곳만 '요청의 토큰으로 사용자 찾기'로 바꾸면 된다.
 _NICKNAME = os.environ.get("DUMMY_NICKNAME", "dummy_user")
-_user_id = None
+_user_id = None          # ★ 주의: 찾은 사용자 번호를 서버 전체에서 기억한다. 사용자가 한 명(더미)일 때만 안전하다.
+                         #   로그인을 붙일 때 이 기억을 반드시 없애고, 요청마다 토큰으로 사용자를 찾아야 한다.
+                         #   그대로 두면 처음 접속한 사람의 번호가 모든 요청에 쓰여 남의 목장이 보이게 된다.
 
 
 def current_user_id():
@@ -276,10 +278,13 @@ def get_entry_by_date(user_id, book_id, date_iso):
 #  규칙: 하루 = 글 하나 / 문장을 추가·수정하면 상태는 writing, '이야기 저장하기'를 누르면 done
 #        edited_at 은 문장 내용이 바뀔 때만, saved_at 은 저장하기를 누를 때만 갱신 / 시각은 앱이 한국 시간으로 넣는다
 # ═════════════════════════════════════════════════════════════════════════
+MAX_SENTENCES = 200     # 글 하나에 쓸 수 있는 문장 수 (넘으면 새 문장을 받지 않는다. 고치기 · 순서 바꾸기는 계속 된다)
 MAX_TEXT = 500          # 문장 한 줄 최대 글자 수
 MAX_REASONS = 20        # 틀린 이유 최대 개수
 MAX_REASON_LEN = 300
 MAX_CORRECTIONS = 30    # 한 문장의 교정 항목 최대 개수
+MAX_EXPLANATION = 2000  # 교정 설명문 최대 글자 수 (넘는 부분은 자른다)
+MAX_CHOICE_LEN = 4000   # 표현 선택 기록(JSON으로 바꾼 길이) 최대 글자 수
 MAX_EVIDENCES = 5       # 교정 항목 하나의 근거 조항 최대 개수 (파이프라인은 최대 3개를 준다)
 
 
@@ -372,7 +377,7 @@ def _insert_corrections(tx, sentence_id, items):
                                         evidences, query_text, error_type)
                VALUES (:sid, :idx, :st, :en, :b, :a, :ex, :doc, :part, :art, :pg, :sc, :evs, :q, :et)""",
             {"sid": sentence_id, "idx": _opt_int(c.get("index"), i), "st": _opt_int(c.get("start")), "en": _opt_int(c.get("end")),
-             "b": _cut(c.get("before"), 200) or "", "a": _cut(c.get("after"), 200) or "", "ex": c.get("explanation"),
+             "b": _cut(c.get("before"), 200) or "", "a": _cut(c.get("after"), 200) or "", "ex": _cut(c.get("explanation"), MAX_EXPLANATION),
              "doc": _cut(ev.get("doc_id"), 100), "art": _cut(ev.get("article"), 100), "pg": _opt_int(ev.get("page")),
              "sc": _opt_float(ev.get("score")), "q": _cut(c.get("query"), 500),
              "part": _cut(ev.get("part"), 40),                           # 근거 문서 이름 (한글 맞춤법 / 표준어 사정 원칙)
@@ -389,7 +394,9 @@ def _clean_text(v, name):
     return v
 
 
-_SHIFT = 100000        # 순서를 바꿀 때 잠깐 옮겨 두는 자리 (같은 글 안에서 순서 번호가 겹치면 안 되므로 두 번에 나눠 옮긴다)
+# 순서 번호를 바꿀 때: 같은 글 안에서 번호가 겹치면 안 되므로(UNIQUE) 두 번에 나눠 옮긴다.
+#   1) 옮길 문장들의 번호를 음수로 뒤집어 잠깐 비켜 두고 (양수 번호와는 절대 겹치지 않는다. seq 칸은 음수도 담는 INT)
+#   2) 새 번호를 매긴다.
 
 
 def move_sentence(user_id, entry_id, seq, to):
@@ -407,7 +414,7 @@ def move_sentence(user_id, entry_id, seq, to):
         now = _now_str()
         if seq != to:
             ids.insert(to - 1, ids.pop(seq - 1))
-            tx.execute("UPDATE sentences SET seq = seq + :k WHERE entry_id = :eid", {"k": _SHIFT, "eid": entry_id})
+            tx.execute("UPDATE sentences SET seq = -seq WHERE entry_id = :eid", {"eid": entry_id})
             for n, sid in enumerate(ids, 1):
                 tx.execute("UPDATE sentences SET seq = :n WHERE id = :sid", {"n": n, "sid": sid})
             tx.execute("UPDATE entries SET status = 'writing', edited_at = :now WHERE id = :eid", {"now": now, "eid": entry_id})
@@ -443,6 +450,8 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
     mode = _cut(data.get("correction_mode") or None, 20)
     choice = data.get("expression_choice")
     choice = None if choice is None else json.dumps(choice, ensure_ascii=False)
+    if choice is not None and len(choice) > MAX_CHOICE_LEN:
+        raise BadRequest("표현 선택 기록이 너무 길어요.")
     has_corr = 1 if data.get("has_correction") else 0
 
     def work(tx):
@@ -452,9 +461,12 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
         if seq > (rows[-1]["seq"] if rows else 0) + 1:
             raise BadRequest("앞의 문장이 아직 저장되지 않았어요.")
         cur = next((r for r in rows if r["seq"] == seq), None)
-        if insert and cur is not None and not (cur["original"] == original and cur["revised"] == revised):
-            tx.execute("UPDATE sentences SET seq = seq + :k WHERE entry_id = :eid AND seq >= :seq", {"k": _SHIFT, "eid": entry_id, "seq": seq})
-            tx.execute("UPDATE sentences SET seq = seq - :k WHERE entry_id = :eid AND seq > :big", {"k": _SHIFT - 1, "eid": entry_id, "big": _SHIFT})
+        squeeze = insert and cur is not None and not (cur["original"] == original and cur["revised"] == revised)   # 사이에 끼워 넣는 경우
+        if (cur is None or squeeze) and len(rows) >= MAX_SENTENCES:            # 문장이 하나 늘어나는 저장만 막는다
+            raise BadRequest(f"한 글에는 문장을 {MAX_SENTENCES}개까지 쓸 수 있어요.")
+        if squeeze:
+            tx.execute("UPDATE sentences SET seq = -seq WHERE entry_id = :eid AND seq >= :seq", {"eid": entry_id, "seq": seq})   # 뒤 문장들을 비켜 두고
+            tx.execute("UPDATE sentences SET seq = -seq + 1 WHERE entry_id = :eid AND seq < 0", {"eid": entry_id})                # 한 칸씩 뒤 번호로
             cur = None
         now = _now_str()
         changed = cur is None or cur["original"] != original or cur["revised"] != revised
