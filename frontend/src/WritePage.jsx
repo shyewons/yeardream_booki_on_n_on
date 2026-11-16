@@ -4,7 +4,7 @@
 //   bookId 책의 글을 열어 문장마다 저장한다 (일기는 date 의 글, 동화는 date 없이 책 하나에 이야기 한 편).
 //
 // 화면을 바꾸는 일은 App.jsx 가 한다. 이 화면은 아래 함수(props)를 부르기만 한다.
-//   onBack()   글 목록으로
+//   onBack()   글 목록으로 (동화는 이야기 보기로)
 //   onSaved(글 번호)   '이야기 저장하기'가 끝남 → 글 조회 화면으로
 //   onDateChange(날짜)   '날짜 바꾸기'로 다른 날짜의 일기를 연다
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
@@ -255,7 +255,7 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
         <div className="write-page">
             <header>
                 <button type="button" className="to-list btn-sm" id="to-list" onClick={() => leave(onBack)}>
-                    ← 목록으로
+                    {state.kind === 'fairy' ? '← 이야기로' : '← 목록으로'}
                 </button>
                 <h1 id="title">{title}</h1>
                 {state.entry && <span className="pill" id="kind-pill">{state.kind === 'fairy' ? '동화' : '일기'}</span>}{' · '}

@@ -1,6 +1,8 @@
 // 글 리스트 화면 (요구사항정의서 차트 - 화면ID 시트 - 04번 화면)
 // GET /api/books/{책}/entries?page=N → 한 쪽 10개 (일기: 최신 날짜부터).
-// 일기: '새 일기 쓰기'(오늘) + 쓰던 일기가 있으면 '이어서 쓰기', 날짜로 찾기.  동화: 책 하나에 이야기 한 편.
+// 일기: '새 일기 쓰기'(오늘) + 쓰던 일기가 있으면 '이어서 쓰기', 날짜로 찾기.
+// 동화: 책 하나에 이야기 한 편이라 목록을 보여 주지 않는다. 이야기가 있으면 바로 그 이야기(PostDetailPage)를,
+//       아직 없으면 '이야기 쓰기' 버튼만 보여 준다.
 //
 // 화면을 바꾸는 일은 App.jsx 가 한다. 이 화면은 아래 함수(props)를 부르기만 한다.
 //   onPageChange(쪽)   다른 쪽 보기
@@ -15,6 +17,7 @@ import { COVER, KIND_LABEL, fmtDate, todayKST } from './format.js'
 import { useLoad } from './useLoad.js'
 import LoadError from './LoadError.jsx'
 import Pager from './Pager.jsx'
+import PostDetailPage from './PostDetailPage.jsx'
 
 // 날짜로 일기 찾기: 있으면 그 글로, 없으면 '이 날짜로 쓰기'를 권한다
 function DateFinder({ bookId, onOpenEntry, onWrite, onAuthError }) {
@@ -68,6 +71,29 @@ export default function PostListPage({ bookId, page, onPageChange, onOpenEntry, 
 
     const { book } = data
     const isDiary = book.kind === 'diary'
+
+    // 동화: 목록 대신 이야기를 바로 보여 준다
+    if (!isDiary) {
+        if (data.items.length) {
+            // 글쓰기 화면이 여는 글(번호가 가장 작은 글)과 같은 글을 보여 준다
+            const storyId = Math.min(...data.items.map((e) => e.id))
+            return (
+                <PostDetailPage entryId={storyId} onOpenEntry={onOpenEntry} onWrite={onWrite}
+                                onBack={onHome} onHome={onHome} onAuthError={onAuthError} />
+            )
+        }
+        return (
+            <div>
+                {back}
+                <h1>{COVER[book.cover] || '📖'} {book.title}에게 들려준 이야기 [{KIND_LABEL[book.kind] ?? book.kind}]</h1>
+                <p className="empty">아직 들려준 이야기가 없어요.</p>
+                <p className="start">
+                    <button type="button" onClick={() => onWrite(null)}>이야기 쓰기</button>
+                </p>
+            </div>
+        )
+    }
+
     const today = todayKST()
     const writing = data.writing // 쓰는 중인 글 (없으면 null)
     const writingDate = writing && writing.date ? String(writing.date).slice(0, 10) : null
@@ -78,33 +104,23 @@ export default function PostListPage({ bookId, page, onPageChange, onOpenEntry, 
             <h1>
                 {COVER[book.cover] || '📖'} {book.title}에게 들려준 이야기 [{KIND_LABEL[book.kind] ?? book.kind}]
             </h1>
-            {data.total > 0 && <p>{isDiary ? '읽고 싶은 날짜를 눌러 주세요.' : '이야기를 눌러 읽어 보세요.'}</p>}
+            {data.total > 0 && <p>읽고 싶은 날짜를 눌러 주세요.</p>}
 
             <p className="start">
-                {isDiary ? (
+                <button type="button" onClick={() => onWrite(today)}>
+                    {writingDate === today ? '오늘 일기 이어서 쓰기' : '새 일기 쓰기'}
+                </button>
+                {writing && writingDate !== today && (
                     <>
-                        <button type="button" onClick={() => onWrite(today)}>
-                            {writingDate === today ? '오늘 일기 이어서 쓰기' : '새 일기 쓰기'}
+                        {' '}
+                        <button type="button" onClick={() => onWrite(writingDate)}>
+                            이어서 쓰기 ({fmtDate(writingDate)})
                         </button>
-                        {writing && writingDate !== today && (
-                            <>
-                                {' '}
-                                <button type="button" onClick={() => onWrite(writingDate)}>
-                                    이어서 쓰기 ({fmtDate(writingDate)})
-                                </button>
-                            </>
-                        )}
                     </>
-                ) : (
-                    <button type="button" onClick={() => onWrite(null)}>
-                        {data.total ? '이야기 이어서 쓰기' : '이야기 쓰기'}
-                    </button>
                 )}
             </p>
 
-            {isDiary && (
-                <DateFinder bookId={bookId} onOpenEntry={onOpenEntry} onWrite={onWrite} onAuthError={onAuthError} />
-            )}
+            <DateFinder bookId={bookId} onOpenEntry={onOpenEntry} onWrite={onWrite} onAuthError={onAuthError} />
 
             {data.items.length ? (
                 <ul className="rows">
@@ -121,7 +137,7 @@ export default function PostListPage({ bookId, page, onPageChange, onOpenEntry, 
             )}
 
             <Pager page={data.page} totalPages={data.total_pages} total={data.total}
-                   unit={isDiary ? '일' : '편'} onGo={onPageChange} />
+                   unit="일" onGo={onPageChange} />
         </div>
     )
 }
