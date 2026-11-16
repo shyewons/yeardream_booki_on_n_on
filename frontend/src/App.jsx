@@ -4,6 +4,7 @@ import NicknamePage from "./NicknamePage.jsx";      // 별명설정 페이지
 import HomeListPage from "./HomeListPage.jsx";      // 목장(메인) 페이지
 import CreateBookPage from "./CreateBookPage.jsx";  // 새 책 만들기 페이지
 import PostListPage from "./PostListPage.jsx";      // 글 리스트 페이지
+import PostDetailPage from "./PostDetailPage.jsx";  // 작성한 글 조회 페이지
 
 
 export default function App() {
@@ -13,7 +14,17 @@ export default function App() {
     // nickname: 별명 설정
     // home: 목장
     // createBook: 새 책 만들기
+    // postList: 글 리스트 (책 한 권에 쓴 글 목록)
+    // postDetail: 작성한 글 조회
     const [page, setPage] = useState("checking");
+
+    // 글 리스트 · 글 조회 화면이 쓰는 값
+    // bookId: 목장에서 고른 책 번호
+    // listPage: 글 리스트의 몇 번째 쪽인지 (글을 보고 돌아와도 보던 쪽이 유지된다)
+    // entryId: 글 리스트에서 고른 글 번호
+    const [bookId, setBookId] = useState(null);
+    const [listPage, setListPage] = useState(1);
+    const [entryId, setEntryId] = useState(null);
     
     // 앱 시작 시 서버 연결 등에 문제가 생기면 표시할 메시지
     const [startupError, setStartupError] = useState("");
@@ -23,6 +34,14 @@ export default function App() {
     const handleAuthError = useCallback(() => {
         clearToken();
         setPage("nickname");
+    }, []);
+
+
+    // 글쓰기 버튼을 눌렀을 때 실행할 공통 함수 (글 리스트 · 글 조회 화면에서 같이 쓴다)
+    // date: 일기 날짜("2026-11-16"), 동화는 null
+    // TODO: 글쓰기 화면이 연결되면 alert 대신 bookId 와 date 를 넘기며 화면을 전환한다.
+    const handleWrite = useCallback((date) => {
+        alert(`글쓰기 화면은 아직 연결 전이에요. (${date ?? "동화"})`);
     }, []);
 
 
@@ -105,9 +124,11 @@ export default function App() {
                     onCreateBook={() => setPage("createBook")}
 
                     // 자식이 선택한 책 객체를 전달한다.
-                    // 현재는 글쓰기 화면 대신 임시 알림만 표시한다.
+                    // 고른 책 번호를 기억하고 그 책의 글 리스트(1쪽)로 전환한다.
                     onOpenBook={(book) => {
-                        alert(`${book.title}: 글쓰기 화면은 아직 연결 전이에요.`);
+                        setBookId(book.id);
+                        setListPage(1);
+                        setPage("postList");
                     }}
 
                     // 목장 조회 중 인증 오류가 나면 공통 함수 실행
@@ -126,6 +147,47 @@ export default function App() {
                     onCancel={() => setPage("home")}
                     
                     // 책 생성 중 인증 오류가 나면 별명 화면으로 전환
+                    onAuthError={handleAuthError}
+                />
+            )}
+
+            {/* 5. 글 리스트 화면 */}
+            {page === "postList" && (
+                <PostListPage
+                    bookId={bookId}
+                    page={listPage}
+
+                    // 쪽 번호를 누르면 그 쪽을 다시 조회한다.
+                    onPageChange={setListPage}
+
+                    // 글을 누르면 고른 글 번호를 기억하고 글 조회 화면으로 전환
+                    onOpenEntry={(id) => {
+                        setEntryId(id);
+                        setPage("postDetail");
+                    }}
+
+                    // 글쓰기 버튼: date 는 일기 날짜("2026-11-16"), 동화는 null
+                    // 현재는 글쓰기 화면 대신 임시 알림만 표시한다.
+                    onWrite={handleWrite}
+
+                    onHome={() => setPage("home")}
+                    onAuthError={handleAuthError}
+                />
+            )}
+
+            {/* 6. 작성한 글 조회 화면 */}
+            {page === "postDetail" && (
+                <PostDetailPage
+                    entryId={entryId}
+
+                    // 이전/다음 이야기: 글 번호만 바꾸면 같은 화면이 새 글을 조회한다.
+                    onOpenEntry={setEntryId}
+
+                    // 고쳐쓰기 · 이어서 쓰기 버튼 (글 리스트의 글쓰기 버튼과 같은 동작)
+                    onWrite={handleWrite}
+
+                    onBack={() => setPage("postList")}
+                    onHome={() => setPage("home")}
                     onAuthError={handleAuthError}
                 />
             )}
