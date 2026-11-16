@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>일기 쓰기</title>
+<style>
+  /* 레이아웃: 위에서 아래로 [안내 질문] → [쓴 문장 목록(스크롤)] → [입력창(아래 고정)] */
+  :root {
+    --bg: #f6f7f9; --fg: #1b2330; --muted: #5d6878; --line: #d3d9e2; --card: #ffffff;
+    --accent: #1f5fbf; --accent-fg: #ffffff; --soft: #e8f0fc;
+    --ok: #1d7a46; --warn: #8a4b00; --warn-bg: #fff4e0; --err: #b3261e; --err-bg: #fdecea;
+    --font: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161d; --fg: #e6ebf2; --muted: #9aa5b5; --line: #374052; --card: #1a2029;
+      --accent: #6aa2ff; --accent-fg: #0d1522; --soft: #1d2b44;
+      --ok: #62c58b; --warn: #f0b868; --warn-bg: #2a2012; --err: #ff8a80; --err-bg: #2d1715;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 var(--font);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  #write { display: contents; }
+  #write[hidden] { display: none; }
+  #app { max-width: 720px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
+  button { font: inherit; cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: .45; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  header { padding-block: 20px 4px; }
+  header h1 { font-size: 1.1rem; margin: 0; color: var(--muted); font-weight: 600; }
+
+  /* ---- 문장 목록 ---- */
+  #list { list-style: none; margin: 0; padding: 12px 0 24px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+  .empty { color: var(--muted); padding: 24px 0; text-align: center; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; scroll-margin: 16px; }
+  .card.editing { border-color: var(--accent); box-shadow: 0 0 0 2px var(--soft); }
+  .card .top { display: flex; align-items: center; gap: 8px; }
+  .card .no { font-weight: 700; color: var(--muted); min-width: 1.6em; }
+  .pill { font-size: .78rem; padding: 1px 8px; border-radius: 999px; background: var(--soft); color: var(--accent); }
+  .pill.ok { color: var(--ok); } .pill.err { color: var(--err); background: var(--err-bg); }
+  .card .spacer { flex: 1; }
+  .btn-sm { border: 1px solid var(--line); background: transparent; color: var(--fg); border-radius: 6px; padding: 2px 10px; font-size: .88rem; }
+  .btn-sm:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .card .text { font-size: 1.12rem; margin: 6px 0 0; overflow-wrap: anywhere; }
+  .card .orig { color: var(--muted); font-size: .88rem; margin: 2px 0 0; overflow-wrap: anywhere; }
+  .card .prog { color: var(--accent); font-size: .92rem; margin: 6px 0 0; }
+  .card .pending { background: var(--soft); border-radius: 6px; padding: 8px 10px; margin-top: 8px; font-size: .92rem; }
+  .card .errmsg { color: var(--err); font-size: .92rem; margin: 6px 0 0; }
+  details.fix { margin-top: 8px; }
+  details.fix summary { cursor: pointer; color: var(--accent); font-size: .92rem; }
+  .fix .item { margin: 10px 0 0; padding-left: 10px; border-left: 3px solid var(--line); }
+  .fix .what { margin: 0 0 2px; font-weight: 600; }
+  .fix .exp { margin: 0; white-space: pre-line; font-size: .94rem; }   /* 설명문 안의 줄바꿈(\n)을 그대로 보여 준다 */
+  .mode { color: var(--muted); font-size: .78rem; margin: 8px 0 0; }
+
+  /* ---- 입력창 (아래 고정) ---- */
+  #composer {
+    position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--line);
+    padding: 12px 0 max(12px, env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  #question { margin: 0; font-weight: 600; }
+  [hidden] { display: none !important; }   /* hidden 을 준 요소는 display 를 따로 정했더라도 항상 숨긴다 */
+  .fix .ev { margin: 2px 0 0; font-size: .82rem; color: var(--muted); }
+  #expr-box { background: var(--soft); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  #expr-box[hidden] { display: none; }
+  #expr-box p { margin: 0; }
+  #expr-box .ask { font-weight: 700; }
+  #expr-box label { display: flex; gap: 8px; align-items: baseline; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; overflow-wrap: anywhere; }
+  #expr-box label:has(input:checked) { border-color: var(--accent); }
+  #expr-box .row { flex-wrap: wrap; }
+  #expr-box .yes { border: 0; background: var(--accent); color: var(--accent-fg); border-radius: 8px; padding: 6px 16px; font-weight: 600; }
+  .card .top { flex-wrap: wrap; }
+  #topic-box { background: var(--soft); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  #topic-box[hidden], #topic-line[hidden], #question[hidden] { display: none; }
+  #topic-box p { margin: 0; }
+  #topic-box .ask { font-weight: 700; font-size: 1.05rem; }
+  #topic-box .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #topic-box .chip { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 999px; padding: 4px 14px; font: inherit; cursor: pointer; }
+  #topic-box .chip:hover { border-color: var(--accent); color: var(--accent); }
+  #topic-box .chip.yes { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+  #topic-line { margin: 0; font-size: .88rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #mode-bar { display: flex; align-items: center; gap: 8px; background: var(--soft); border-radius: 6px; padding: 6px 10px; font-size: .92rem; }
+  #mode-bar[hidden] { display: none; }
+  #mode-bar .ref { color: var(--muted); overflow-wrap: anywhere; flex: 1; min-width: 0; }
+  .row { display: flex; gap: 8px; }
+  #box { flex: 1; min-width: 0; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); }
+  #go { border: 0; background: var(--accent); color: var(--accent-fg); border-radius: 8px; padding: 0 16px; font-weight: 600; }
+  #msg { margin: 0; color: var(--warn); background: var(--warn-bg); border-radius: 6px; padding: 6px 10px; }
+  #shown { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+  #choices > div { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+  #choices button { border: 1px solid var(--accent); background: transparent; color: var(--accent); border-radius: 6px; padding: 2px 10px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .actions .hint { color: var(--muted); font-size: .85rem; }
+  #finish { border: 1px solid var(--line); background: transparent; color: var(--fg); border-radius: 8px; padding: 4px 12px; }
+
+  /* ---- 전체 글 ---- */
+  #all { padding: 20px 0; display: flex; flex-direction: column; gap: 12px; }
+  #all-text { font-size: 1.1rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin: 0; overflow-wrap: anywhere; }
+  #all .actions button { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 8px; padding: 6px 14px; }
+
+  /* ---- 개발용 로그 (완성 화면에서는 이 블록을 지우면 된다) ---- */
+  details.dev { margin: 8px 0 24px; border-top: 1px dashed var(--line); padding-top: 8px; color: var(--muted); }
+  #log { height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin: 8px 0 0; white-space: pre-wrap; font-size: .8rem; background: var(--card); color: var(--fg); }
+  details.dev button { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 6px; padding: 2px 10px; }
+
+  /* ---- DB 저장 (주소에 book 이 있을 때) ---- */
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+  header h1 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .to-list { font-size: .9rem; color: var(--accent); }
+  .pill.warn { color: var(--warn); background: var(--warn-bg); }
+  .day-pick { margin-left: auto; font-size: .85rem; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .day-pick input { font: inherit; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
+  #savebar { margin: 0 0 4px; font-size: .85rem; color: var(--muted); }
+  #savebar.err { color: var(--err); background: var(--err-bg); border-radius: 6px; padding: 6px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  #savebar[hidden] { display: none; }
+  .note { margin: 0; color: var(--muted); font-size: .82rem; }
+  .note[hidden] { display: none; }
+  #all .actions .primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+  #all .actions [hidden] { display: none; }
+  #save-err { margin: 0; color: var(--err); background: var(--err-bg); border-radius: 6px; padding: 8px 12px; overflow-wrap: anywhere; }
+  #save-err[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <a class="to-list" id="to-list" href="/books">← 목장으로</a>
+    <h1 id="title">일기 쓰기</h1>
+    <span class="pill" id="kind-pill" hidden></span>
+    <span class="pill" id="entry-pill" hidden></span>
+    <label class="day-pick" id="day-wrap" hidden>날짜 바꾸기 <input type="date" id="day-pick"></label>   <!-- 일기만: 다른 날짜의 일기로 옮겨 간다 -->
+  </header>
+  <p class="note" id="practice-note" hidden>연습 모드라 저장되지 않아요. 저장하며 쓰려면 <a href="/books#new">새로운 이야기</a>를 만들거나 <a href="/books">목장</a>에서 친구를 골라 주세요.</p>
+  <p id="savebar" hidden role="status"></p>   <!-- 저장 상태: 저장 중 / 마지막 저장 시각 / 저장 실패 -->
+
+  <!-- ===== 쓰기 화면: 문장 목록 + 아래 고정 입력창 ===== -->
+  <div id="write">
+    <ol id="list" aria-label="지금까지 쓴 문장"></ol>
+
+    <section id="composer" aria-label="문장 입력">
+      <div id="topic-box" hidden></div>      <!-- 동화: 주제 추천 (추천 1개 + 다른 주제 3개) -->
+      <p id="topic-line" hidden></p>         <!-- 동화: 고른 주제 + 바꾸기 -->
+      <div id="expr-box" hidden></div>       <!-- 동화: 표현 추천 (바꿔 쓴 문장 + 원래 문장 그대로) -->
+      <p id="question"></p>   <!-- 입력칸 위 안내 질문 (서버의 /question) -->
+      <div id="mode-bar" hidden>   <!-- 다시쓰기 중일 때만 보인다 -->
+        <span id="mode-title"></span>
+        <span class="ref" id="mode-ref"></span>
+        <button class="btn-sm" id="cancel-edit" type="button">취소</button>
+      </div>
+      <!-- 글자 수 제한(maxlength)은 input_validation.py의 MAX_CHARS와 같은 값으로 맞춘다 -->
+      <div class="row">
+        <input id="box" type="text" maxlength="100" placeholder="오늘 있었던 일을 한 문장으로 적어보세요" autocomplete="off">
+        <button id="go" type="button">확인하기</button>
+      </div>
+      <p id="msg" hidden></p>        <!-- 다시 입력 안내 -->
+      <p id="shown" hidden></p>      <!-- 하이라이트 표시 -->
+      <div id="choices"></div>       <!-- 선택지 -->
+      <p class="note" id="unsaved-note" hidden>확인하기를 누르기 전의 문장은 저장되지 않아요. 목록으로 나가면 사라져요.</p>
+      <div class="actions">
+        <button id="finish" type="button" disabled>다 썼어요</button>
+        <span class="hint" id="hint"></span>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===== 전체 글 읽기 ===== -->
+  <section id="all" hidden>
+    <h2 style="margin:0;font-size:1.05rem">전체 글</h2>
+    <p id="all-text"></p>
+    <p id="save-err" hidden></p>
+    <div class="actions">
+      <button id="back" type="button">이어서 쓰기</button>
+      <button id="restart" type="button">처음부터 다시 쓰기</button>
+      <button id="save-story" class="primary" type="button" hidden>이야기 저장하기</button>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  /* =====================================================================
+     화면이 들고 있는 값 (서버는 매번 새로 계산하므로 제출할 때마다 같이 보낸다)
+     sentences 한 줄의 모양은 ERD의 sentences 테이블과 맞춰 두었다:
+       { id, original, revised, retry_count, was_corrected, ... }
+     나중에 API로 바꿀 때 이 모양 그대로 보내면 된다.
+     ===================================================================== */
+  let sentences = [];     // 쓴 문장 목록 (위에서 아래 순서 = position)
+  let nextId = 1;
+  let editingId = null;   // 다시쓰기 중인 줄의 id (없으면 새 줄 쓰기)
+  let attempt = 0;        // 지금 줄에 쓴 입력 횟수 (validation_attempt)
+  let carried = [];       // 선택지에서 이미 고른 번호들
+  let tries = 0;          // 이 줄을 통과하기까지 실패한 횟수 (retry_count)
+  let busy = false;       // 검사·교정 진행 중이면 true (입력과 다시쓰기를 잠근다)
+
+  const $ = (id) => document.getElementById(id);
+
+  function h(tag, props, ...kids) {
+    const el = document.createElement(tag);
+    Object.assign(el, props || {});
+    kids.flat().forEach((k) => { if (k !== null && k !== undefined && k !== false) el.append(k); });
+    return el;
+  }
+
+  /* ---------- 로그 ---------- */
+  // 개발용 로그는 화면에 보이지 않는다. 브라우저 개발자 도구의 콘솔(F12)에만 적는다 (서버는 logs/dev_날짜.log 에 따로 적는다).
+  function log(label, obj) { try { console.debug("[일기 로그] " + label, obj); } catch (e) { /* 콘솔이 없어도 그대로 진행 */ } }
+  // 화면 동작 기록: 무엇을 눌렀는지를 서버의 logs/ui_날짜.log 로 보낸다 (결과를 기다리지 않고, 실패해도 무시한다).
+  // 문장 내용은 보내지 않는다 (번호 · 개수 · 고른 항목만).
+  const SID = Math.random().toString(36).slice(2, 10);       // 이 화면을 연 한 번을 묶는 번호
+  function track(event, data) {
+    try {
+      const body = JSON.stringify({ event, sid: SID, page: "write", data: data || null });
+      if (navigator.sendBeacon) navigator.sendBeacon("/log/ui", new Blob([body], { type: "application/json" }));
+      else fetch("/log/ui", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
+    } catch (e) { /* 기록을 못 해도 글쓰기는 그대로 */ }
+  }
+
+
+  /* =====================================================================
+     DB 저장: 주소에 ?book=책번호&date=2026-11-12 가 있으면 그 책의 그 날짜 글을 열고, 쓰는 동안 저장한다.
+     (주소에 book 이 없으면 '연습 모드'라서 아무것도 저장하지 않는다)
+       열기   POST /api/books/{책}/entries              글을 열거나 만들고, 이미 쓴 문장을 돌려준다
+       저장   PUT  /api/entries/{글}/sentences/{순서}    문장이 교정까지 끝날 때마다 (임시저장)
+       완성   POST /api/entries/{글}/complete            '이야기 저장하기'
+     ===================================================================== */
+  const qs = new URLSearchParams(location.search);
+  const BOOK = qs.get("book");
+  const DAY = qs.get("date");
+  const dbMode = !!BOOK;
+  if (!dbMode && !qs.has("practice")) location.replace("/books");   // 책도 연습 표시도 없이 열면 목장으로 (서버도 같은 일을 한다)
+  let entryId = null;
+  let lastSaved = "";             // 마지막으로 저장된 시각 (HH:MM)
+  let leaving = false;            // 저장하고 다른 화면으로 넘어가는 중이면 '나갈까요?' 물음을 건너뛴다
+  let reasonsNow = [];            // 지금 줄이 통과하기 전에 걸린 이유들 (validation_log 중 확인용이 아닌 것) → 틀린이유
+  let saveChain = Promise.resolve();   // 저장은 한 번에 하나씩 차례로 (문장 순서가 뒤바뀌지 않게)
+
+  async function api(method, path, body) {
+    let res;
+    try {
+      res = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    } catch (e) { throw new Error("서버에 연결하지 못했어요."); }
+    if (!res.ok) {
+      let d = ""; try { d = (await res.json()).detail || ""; } catch (e) { /* 본문이 없으면 그대로 */ }
+      throw new Error(typeof d === "string" && d ? d : "오류가 났어요 (" + res.status + ")");
+    }
+    return res.json();
+  }
+
+  const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
+  function fmtDate(s) {
+    if (!s) return "이야기";
+    const [y, m, d] = String(s).slice(0, 10).split("-").map(Number);
+    return y + "-" + String(m).padStart(2, "0") + "-" + String(d).padStart(2, "0") + " (" + WEEK[new Date(y, m - 1, d).getDay()] + ")";
+  }
+
+  function setEntryStatus(st) {
+    const el = $("entry-pill");
+    el.hidden = !st;
+    el.className = "pill " + (st === "done" ? "ok" : "warn");
+    el.textContent = st === "done" ? "완성" : "쓰는 중";
+  }
+
+  function setSaveBar(kind, text, withRetry) {
+    if (!dbMode) return;
+    const el = $("savebar");
+    el.className = kind || "";
+    el.hidden = !text;
+    el.replaceChildren(h("span", { textContent: text || "" }));
+    if (withRetry) el.append(h("button", { className: "btn-sm", type: "button", textContent: "다시 저장하기", onclick: retrySaves }));
+  }
+  function updateSaveBar() {
+    if (sentences.some((x) => x.saveState === "error")) setSaveBar("err", "임시저장하지 못했어요." + (lastSaved ? " 마지막 저장 " + lastSaved : ""), true);
+    else setSaveBar("", lastSaved ? "임시저장했어요 · 마지막 저장 " + lastSaved : "");
+  }
+
+  // 서버가 받는 한 줄: ERD의 sentences 표와 같은 이름 (교정 항목은 파이프라인 응답 그대로)
+  function payloadOf(s) {
+    return { original: s.original, revised: s.revised || s.original, attempt_count: (s.retry_count || 0) + 1,
+      invalid_reasons: s.reasons || [], has_correction: !!s.was_corrected, correction_mode: s.mode || null, corrections: s.corrections || [],
+      expression_choice: s.expression_choice || null };
+  }
+  async function saveOne(s) {
+    const seq = sentences.indexOf(s) + 1;
+    if (seq < 1 || !s.original) return true;
+    s.saveState = "saving";
+    try {
+      // 끼워 넣은 문장은 그 자리부터 뒤 문장을 한 칸씩 미는 주소로, 나머지는 그 순서에 덮어쓰는 주소로 보낸다
+      const r = s.inserted ? await api("POST", "/api/entries/" + entryId + "/sentences/" + seq + "/insert", payloadOf(s))
+                           : await api("PUT", "/api/entries/" + entryId + "/sentences/" + seq, payloadOf(s));
+      s.saveState = "saved"; s.inserted = false;
+      setEntryStatus(r.entry.status);
+      lastSaved = String(r.saved_at || "").slice(11, 16);
+      return true;
+    } catch (e) { s.saveState = "error"; s.saveError = e.message; track("save_fail", { seq, message: String(e.message).slice(0, 200) }); return false; }
+  }
+  function queueSave(s) {
+    if (!dbMode || !entryId) return Promise.resolve(true);
+    setSaveBar("", "저장 중…");
+    saveChain = saveChain.then(async () => { const ok = await saveOne(s); updateSaveBar(); renderList(); return ok; });
+    return saveChain;
+  }
+  // 저장되지 않은 줄을 앞에서부터 다시 저장한다 (앞 줄이 실패하면 거기서 멈춘다: 순서가 비면 서버가 받지 않는다)
+  async function retrySaves() {
+    setSaveBar("", "저장 중…");
+    saveChain = saveChain.then(async () => {
+      for (const s of sentences) { if (s.original && s.saveState !== "saved") { if (!(await saveOne(s))) break; } }
+      updateSaveBar(); renderList();
+    });
+    await saveChain;
+    return !sentences.some((x) => x.original && x.saveState !== "saved");
+  }
+
+  function fromServer(x) {
+    return { id: nextId++, original: x.original, revised: x.revised, retry_count: Math.max(0, (x.attempt_count || 1) - 1),
+      was_corrected: !!x.has_correction, corrections: x.corrections || [], compliment: null, mode: x.correction_mode,
+      reasons: x.invalid_reasons || [], expression_choice: x.expression_choice || null, saveState: "saved" };
+  }
+
+  async function boot() {
+    if (!dbMode) {                                   // 연습 모드: 저장 없이 쓰기만
+      $("title").textContent = "일기 쓰기 · 연습 (저장되지 않아요)";
+      $("practice-note").hidden = false;
+      track("page_open", { mode: "practice" });
+      refreshComposer(); loadQuestion();
+      return;
+    }
+    $("to-list").href = "/books#book/" + encodeURIComponent(BOOK) + "/1";
+    $("to-list").textContent = "← 목록으로";
+    $("unsaved-note").hidden = false;
+    $("restart").hidden = true; $("save-story").hidden = false;
+    busy = true; refreshComposer();
+    $("list").replaceChildren(h("li", { className: "empty", textContent: "불러오는 중…" }));
+    try {
+      const r = await api("POST", "/api/books/" + encodeURIComponent(BOOK) + "/entries", DAY ? { date: DAY } : {});
+      entryId = r.entry.id;
+      $("title").textContent = r.book.title + " · " + fmtDate(r.entry.date);
+      document.title = r.book.title + " 쓰기";
+      setEntryStatus(r.entry.status);
+      $("kind-pill").textContent = r.book.kind === "fairy" ? "동화" : "일기"; $("kind-pill").hidden = false;
+      if (r.book.kind === "diary") {                 // 날짜 바꾸기: 고른 날짜의 일기로 옮겨 간다 (하루 = 글 하나, 앞으로 올 날짜는 못 고른다)
+        const pick = $("day-pick");
+        pick.value = String(r.entry.date).slice(0, 10);
+        pick.max = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(new Date());
+        pick.onchange = () => {
+          if (pick.value && pick.value !== String(r.entry.date).slice(0, 10)) track("date_change", { from: String(r.entry.date).slice(0, 10), to: pick.value });
+          if (pick.value && pick.value !== String(r.entry.date).slice(0, 10))
+            location.href = "/?book=" + encodeURIComponent(BOOK) + "&date=" + pick.value;
+          pick.value = String(r.entry.date).slice(0, 10);     // 나가기를 취소했을 때 표시를 되돌린다
+        };
+        $("day-wrap").hidden = false;
+      }
+      sentences = r.sentences.map(fromServer);
+      bookKind = r.book.kind === "fairy" ? "fairy" : "diary";
+      if (bookKind === "fairy") {                    // 동화: 문구가 다르고, 아직 한 줄도 안 썼고 주제도 없으면 주제부터 추천한다
+        topic = loadTopic();
+        if (!topic && !sentences.length) openTopics(false); else renderTopicLine();
+      }
+      setSaveBar("", "");
+      track("page_open", { mode: "db", book: BOOK, date: DAY, entry: entryId, kind: bookKind, status: r.entry.status, sentences: sentences.length });
+      busy = false; refreshComposer(); loadQuestion(); $("box").focus();
+    } catch (e) {
+      track("open_fail", { book: BOOK, date: DAY, message: String(e.message).slice(0, 200) });
+      const el = $("savebar"); el.className = "err"; el.hidden = false;
+      el.replaceChildren(h("span", { textContent: "글을 불러오지 못했어요. " + e.message }),
+        h("button", { className: "btn-sm", type: "button", textContent: "다시 시도", onclick: boot }),
+        h("a", { href: "/?practice=1", textContent: "저장 없이 연습하기" }));
+      $("list").replaceChildren(h("li", { className: "empty", textContent: "불러오지 못했어요." }));
+    }
+  }
+
+  /* ---------- 검사 요청 ---------- */
+  // 검사에 보내는 이전 문장: 통과한 문장들 중, 지금 다시쓰는 줄은 뺀다 (안 빼면 "방금과 같은 문장"으로 걸러진다)
+  const previousFor = () => sentences.filter((s) => s.original && s.id !== editingId).map((s) => s.original);
+
+  async function send(picks) {
+    const body = {
+      user_input: $("box").value,
+      validation_attempt: attempt,
+      previous_sentences: previousFor(),
+      choice_picks: picks,
+      kind: bookKind,                                  // 일기/동화에 따라 검사 기준과 안내 문구가 다르다
+    };
+    const res = await fetch("/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await res.json();
+    log("① 유효성 검사 요청", body);
+    log("② 유효성 검사 응답", r);
+    track("validate", { attempt: body.validation_attempt, chars: body.user_input.length, route: r.route, valid: !!r.is_valid, awaiting_choice: !!r.awaiting_choice,
+                        editing: editingId !== null, inserting: insertAt !== null, picks: (picks || []).length });
+    return r;
+  }
+
+  function mark(text, spans) {   // 하이라이트 구간을 【 】로 감싼다 (뒤에서부터 바꿔야 위치가 어긋나지 않는다)
+    [...spans].sort((a, b) => b.start - a.start).forEach((s) => {
+      text = text.slice(0, s.start) + "【" + text.slice(s.start, s.end) + "】" + text.slice(s.end);
+    });
+    return text;
+  }
+
+  async function loadQuestion() {
+    const res = await fetch("/question?passed=" + previousFor().length + "&kind=" + bookKind + (topic ? "&topic=" + encodeURIComponent(topic) : ""));
+    $("question").textContent = (await res.json()).question;
+  }
+
+  /* ---------- 동화 주제 추천 ----------
+     추천 1개("○○에 대한 이야기는 어때요?") + 다른 주제 3개 + 더 보기 + 내가 정할게요.
+     고른 주제는 이 브라우저에만 기억한다 (DB에 주제 칸이 생기면 거기로 옮긴다). */
+  let bookKind = "diary", topic = "", shownTopics = [];
+  const topicKey = () => "fairy-topic-" + BOOK;
+  function loadTopic() { try { return localStorage.getItem(topicKey()) || ""; } catch (e) { return ""; } }
+  function storeTopic(v) { try { v ? localStorage.setItem(topicKey(), v) : localStorage.removeItem(topicKey()); } catch (e) {} }
+  function renderTopicLine() {
+    const el = $("topic-line");
+    el.hidden = bookKind !== "fairy" || !$("topic-box").hidden;
+    el.replaceChildren(h("span", { textContent: topic ? "주제: " + topic : "주제를 스스로 정했어요" }),
+      h("button", { className: "btn-sm", type: "button", textContent: topic ? "주제 바꾸기" : "주제 추천받기", onclick: () => openTopics(false) }));
+  }
+  function chooseTopic(v) {
+    topic = v || ""; storeTopic(topic);
+    track(v ? "topic_pick" : "topic_skip", v ? { topic: v, shown: shownTopics.length } : { shown: shownTopics.length });
+    $("topic-box").hidden = true; $("question").hidden = false;
+    renderTopicLine(); loadQuestion(); $("box").focus();
+  }
+  async function openTopics(more) {
+    if (!more) shownTopics = [];
+    let r;
+    try { r = await (await fetch("/topics?exclude=" + encodeURIComponent(shownTopics.join(",")))).json(); }
+    catch (e) { return; }                                   // 추천을 못 받아도 글쓰기는 그대로 할 수 있다
+    shownTopics = shownTopics.concat([r.pick], r.others);
+    track(more ? "topic_more" : "topic_open", { pick: r.pick, others: r.others });
+    const chip = (v, cls) => h("button", { className: "chip" + (cls || ""), type: "button", textContent: v, onclick: () => chooseTopic(v) });
+    const yes = chip(r.pick, " yes"); yes.textContent = "좋아요, 이 이야기로!";
+    $("topic-box").replaceChildren(
+      h("p", { className: "ask", id: "topic-ask", textContent: "어떤 이야기를 쓸까요? 「" + r.pick + "」에 대한 이야기는 어때요?" }),
+      h("div", { className: "row" }, yes),
+      h("p", { textContent: "다른 주제도 있어요." }),
+      h("div", { className: "row", id: "topic-others" }, r.others.map((v) => chip(v))),
+      h("div", { className: "row" },
+        h("button", { className: "btn-sm", type: "button", textContent: "다른 주제 더 보기", onclick: () => openTopics(true) }),
+        h("button", { className: "btn-sm", type: "button", textContent: "내가 정할게요", onclick: () => chooseTopic("") })));
+    $("topic-box").hidden = false; $("question").hidden = true;
+    renderTopicLine();
+  }
+
+  /* ---------- 입력창 상태 ---------- */
+  function clearNotice() {
+    $("msg").hidden = true; $("msg").textContent = "";
+    $("shown").hidden = true; $("shown").textContent = "";
+    $("choices").replaceChildren();
+  }
+  function setNotice(text) { $("msg").textContent = text; $("msg").hidden = !text; }
+
+  function refreshComposer() {
+    $("box").disabled = busy;
+    $("go").disabled = busy;
+    $("cancel-edit").disabled = busy;
+    $("finish").disabled = busy || !sentences.some((s) => s.original);
+    $("hint").textContent = busy ? "검사·교정 중에는 다른 줄을 고칠 수 없어요" : "";
+    const ed = sentences.find((s) => s.id === editingId);
+    if (insertAt !== null && insertAt > sentences.length) insertAt = null;
+    $("mode-bar").hidden = !ed && insertAt === null;
+    if (ed) {
+      $("mode-title").textContent = (sentences.indexOf(ed) + 1) + "번째 줄 다시 쓰기 ·";
+      $("mode-ref").textContent = "기존: " + (ed.revised || ed.original);
+    } else if (insertAt !== null) {
+      const next = sentences[insertAt];
+      $("mode-title").textContent = (insertAt + 1) + "번째 자리에 문장 넣기 ·";
+      $("mode-ref").textContent = next ? "‘" + (next.revised || next.original) + "’ 앞에 들어가요" : "";
+    }
+    $("box").placeholder = ed ? "이 줄을 새로 적어보세요" : insertAt !== null ? "사이에 넣을 문장을 적어보세요" : bookKind === "fairy" ? "상상한 이야기를 한 문장으로 적어보세요" : "오늘 있었던 일을 한 문장으로 적어보세요";
+    renderList();   // 다시쓰기 버튼 잠금 상태 반영
+  }
+
+  /* ---------- 문장 목록 그리기 ---------- */
+  // 근거 표시: "한글 맞춤법 제43항 100쪽". 문서 이름을 붙이는 이유: 두 문서(한글 맞춤법 / 표준어 사정 원칙)에 같은 조항 번호가 있다.
+  // 근거가 여러 개(evidences)면 모두, 없으면 대표 근거(evidence) 하나를 보여 준다. 예전 글은 문서 이름이 없어 조항과 쪽만 나온다.
+  function evidenceText(c) {
+    const one = (e) => [e.part, e.article, e.page ? e.page + "쪽" : null].filter(Boolean).join(" ");
+    const list = (c.evidences && c.evidences.length ? c.evidences : (c.evidence ? [c.evidence] : [])).map(one).filter(Boolean);
+    return list.length ? "근거: " + list.join(" · ") : "";
+  }
+
+  function fixBlock(s) {
+    const items = s.corrections || [];
+    if (!items.length) return s.compliment ? h("p", { className: "mode", textContent: s.compliment }) : null;
+    const d = h("details", { className: "fix" }, h("summary", { textContent: "고친 곳 " + items.length + "개 보기" }));
+    items.forEach((c, i) => {
+      d.append(h("div", { className: "item" },
+        h("p", { className: "what", textContent: (i + 1) + ". ‘" + c.before + "’ → ‘" + c.after + "’" }),
+        h("p", { className: "exp", textContent: c.explanation || "" }),
+        evidenceText(c) ? h("p", { className: "ev", textContent: evidenceText(c) }) : null));
+    });
+    d.open = s.openFix === true;
+    d.addEventListener("toggle", () => { s.openFix = d.open; });
+    return d;
+  }
+
+  // 교정이 진행되는 동안(작업 중) 나오는 대로 보여 줄 내용
+  function workBlock(s) {
+    const w = s.work;
+    const box = h("div", { className: "pending" });
+    box.append(h("div", { textContent: "새 문장: " + w.original }));
+    if (w.status === "error") { box.append(h("div", { className: "errmsg", textContent: w.error })); return box; }
+    let prog = w.progress || "";
+    if (w.loadingSince) prog += " · " + Math.floor((Date.now() - w.loadingSince) / 1000) + "초째";
+    if (prog) box.append(h("div", { className: "prog", textContent: prog }));
+    if (w.revised) box.append(h("div", { textContent: "고친 문장: " + w.revised }));
+    (w.diff || []).forEach((d, i) => {
+      const exp = (w.exps || [])[i];
+      if (exp === undefined || exp === null) return;
+      box.append(h("div", { className: "fix" }, h("div", { className: "item" },
+        h("p", { className: "what", textContent: (i + 1) + ". ‘" + d.before + "’ → ‘" + d.after + "’" }),
+        h("p", { className: "exp", textContent: exp }))));
+    });
+    if (w.compliment) box.append(h("div", { textContent: w.compliment }));
+    return box;
+  }
+
+  function cardFor(s, index) {
+    const working = !!s.work && s.work.status !== "error";
+    const failed = !!s.work && s.work.status === "error";
+    const pill = !s.original && !failed ? h("span", { className: "pill", textContent: "교정 중" })
+      : working ? h("span", { className: "pill", textContent: "다시 교정 중" })
+      : failed ? h("span", { className: "pill err", textContent: "오류" })
+      : h("span", { className: "pill ok", textContent: s.was_corrected ? "고침" : "완료" });
+    const li = h("li", { className: "card" + (s.id === editingId ? " editing" : ""), id: "s-" + s.id },
+      h("div", { className: "top" },
+        h("span", { className: "no", textContent: (index + 1) + "." }), pill,
+        dbMode && s.original && s.saveState === "error" ? h("span", { className: "pill err", textContent: "저장 안 됨" }) : null,
+        h("span", { className: "spacer" }),
+        // 일기만: 순서 바꾸기(위로/아래로)와 이 줄 앞에 끼워 넣기
+        s.original && bookKind === "diary" ? [
+          h("button", { className: "btn-sm", type: "button", textContent: "↑", title: "위로 옮기기", ariaLabel: (index + 1) + "번째 줄 위로 옮기기",
+            disabled: busy || index === 0, onclick: () => moveSentence(s.id, -1) }),
+          h("button", { className: "btn-sm", type: "button", textContent: "↓", title: "아래로 옮기기", ariaLabel: (index + 1) + "번째 줄 아래로 옮기기",
+            disabled: busy || index === sentences.length - 1, onclick: () => moveSentence(s.id, 1) }),
+          h("button", { className: "btn-sm", type: "button", textContent: "위에 넣기", title: "이 줄 앞에 새 문장 넣기", disabled: busy, onclick: () => startInsert(s.id) }),
+        ] : null,
+        s.original ? h("button", { className: "btn-sm", type: "button", textContent: "다시쓰기", disabled: busy,
+          title: busy ? "교정이 끝난 뒤에 고칠 수 있어요" : "", onclick: () => startEdit(s.id) }) : null));
+    if (s.original) {
+      li.append(h("p", { className: "text", textContent: s.revised || s.original }));
+      if (s.revised && s.revised !== s.original) li.append(h("p", { className: "orig", textContent: "내가 쓴 문장: " + s.original }));
+    }
+    if (s.work) li.append(workBlock(s));
+    if (s.original && !s.work) { const f = fixBlock(s); if (f) li.append(f); }
+    if (s.expression_choice && s.expression_choice.picked) li.append(h("p", { className: "mode", textContent: "내가 고른 표현이에요." }));
+    return li;
+  }
+
+  function renderList() {
+    const list = $("list");
+    if (!sentences.length) {
+      list.replaceChildren(h("li", { className: "empty", textContent: "아직 쓴 문장이 없어요. 아래에 첫 문장을 적어보세요." }));
+      return;
+    }
+    list.replaceChildren(...sentences.map(cardFor));
+  }
+
+  function scrollToCard(id) {
+    const el = $("s-" + id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  // 진행 시간(초)이 보이는 동안 1초마다 다시 그린다
+  setInterval(() => { if (sentences.some((s) => s.work && s.work.loadingSince)) renderList(); }, 1000);
+
+  /* ---------- 다시쓰기 ---------- */
+  /* ---------- 문장 끼워 넣기 · 순서 바꾸기 (일기) ---------- */
+  let insertAt = null;              // 끼워 넣을 자리 (0부터). null 이면 맨 뒤에 새 줄 쓰기
+  function startInsert(id) {
+    if (busy) return;
+    const i = sentences.findIndex((x) => x.id === id);
+    if (i < 0) return;
+    track("insert_start", { at: i + 1 });
+    editingId = null; insertAt = i; attempt = 0; carried = []; tries = 0; reasonsNow = [];
+    clearNotice(); $("box").value = "";
+    refreshComposer(); loadQuestion(); $("box").focus();
+  }
+  function moveSentence(id, dir) {
+    if (busy) return;
+    const i = sentences.findIndex((x) => x.id === id), j = i + dir;
+    if (i < 0 || j < 0 || j >= sentences.length) return;
+    if (dbMode && sentences.some((x) => x.original && x.saveState !== "saved")) { setNotice("저장이 끝난 뒤에 순서를 바꿀 수 있어요."); return; }
+    const a = sentences[i], b = sentences[j];
+    track("move", { from: i + 1, to: j + 1 });
+    clearNotice(); editingId = null; insertAt = null;
+    sentences[i] = b; sentences[j] = a;
+    refreshComposer(); scrollToCard(a.id);
+    if (!dbMode || !entryId) return;
+    setSaveBar("", "저장 중…");
+    saveChain = saveChain.then(async () => {
+      try {
+        const r = await api("POST", "/api/entries/" + entryId + "/sentences/" + (i + 1) + "/move", { to: j + 1 });
+        setEntryStatus(r.entry.status); lastSaved = String(r.saved_at || "").slice(11, 16);
+        updateSaveBar();
+      } catch (e) {                                   // 실패: 화면의 순서를 되돌린다 (서버와 화면이 어긋나지 않게)
+        const x = sentences.indexOf(a), y = sentences.indexOf(b);
+        if (x >= 0 && y >= 0) { sentences[x] = b; sentences[y] = a; }
+        setSaveBar("err", "순서를 바꾸지 못했어요. " + e.message);
+        track("move_fail", { from: i + 1, to: j + 1, message: String(e.message).slice(0, 200) });
+      }
+      renderList();
+    });
+  }
+
+  function startEdit(id) {
+    if (busy) return;
+    insertAt = null;
+    track("edit_start", { seq: sentences.findIndex((x) => x.id === id) + 1 });
+    editingId = id; attempt = 0; carried = []; tries = 0; reasonsNow = [];
+    clearNotice(); $("box").value = "";
+    refreshComposer(); loadQuestion();
+    scrollToCard(id); $("box").focus();
+  }
+  function cancelEdit() {
+    if (busy) return;
+    track("edit_cancel", { editing: editingId !== null, inserting: insertAt !== null });
+    insertAt = null;
+    editingId = null; attempt = 0; carried = []; tries = 0; reasonsNow = [];
+    clearNotice(); $("box").value = "";
+    refreshComposer(); loadQuestion(); $("box").focus();
+  }
+
+  /* ---------- 교정 (스트림) ---------- */
+  function onEvent(ev, s) {
+    log("③ 교정 " + ev.type + (ev.stage ? " · " + ev.stage : ""), ev);
+    const w = s.work;
+    if (ev.type === "stage") { w.progress = ev.label + "…"; w.loadingSince = null; }
+    else if (ev.type === "loading") { w.progress = ev.label + " (처음에는 몇 분 걸릴 수 있어요)"; w.loadingSince = Date.now(); }
+    else if (ev.type === "update") {
+      const d = ev.data;
+      if ("revised_sentence" in d) w.revised = d.revised_sentence;
+      if ("difference" in d) w.diff = d.difference;
+      if ("explanations" in d) w.exps = d.explanations;
+      if ("compliment" in d) w.compliment = d.compliment;
+    } else if (ev.type === "done") {
+      const c = ev.correction;                       // 교정 결과 객체 (original_sentence, revised_sentence, corrections[], compliment ...)
+      s.original = c.original_sentence;
+      s.revised = c.revised_sentence;
+      s.corrections = c.corrections || [];
+      s.compliment = c.compliment || null;
+      s.was_corrected = !!c.has_correction;
+      s.retry_count = w.tries;
+      s.reasons = w.reasons || [];                   // 이 줄을 통과하기 전에 걸린 이유들
+      s.expression_choice = null;                    // 문장이 바뀌었으니 앞서 고른 표현 기록은 지운다
+      s.saveState = "pending";                       // 저장 대기 (교정이 끝나면 handle 이 저장한다)
+      s.mode = ev.mode;
+      s.openFix = true;                              // 방금 고친 줄은 펼쳐 둔다
+      delete s.work;
+    } else if (ev.type === "error") {
+      w.status = "error";
+      w.error = "교정 중에 문제가 생겼어요: " + ev.message;
+    }
+    renderList();
+  }
+
+  async function runCorrection(s) {
+    log("③ 교정 요청", { original_sentence: s.work.original });
+    try {
+      const res = await fetch("/correct", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ original_sentence: s.work.original }) });
+      const reader = res.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done: end } = await reader.read();
+        buf += dec.decode(value || new Uint8Array(), { stream: !end });
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+          if (line) onEvent(JSON.parse(line), s);
+        }
+        if (end) break;
+      }
+      if (buf.trim()) onEvent(JSON.parse(buf), s);
+    } catch (e) {
+      onEvent({ type: "error", message: String(e) }, s);
+    }
+  }
+
+  /* ---------- 동화 표현 추천 ----------
+     문장이 교정까지 끝나고 저장된 뒤에, 다르게 쓴 문장 몇 개와 '원래 문장 그대로'를 보여 준다.
+     고르면 그 문장으로 바꿔 다시 저장한다. 추천이 없으면 아무것도 띄우지 않고, 불러오지 못해도 쓴 문장은 그대로다. */
+  function offerExpressions(s) {
+    return new Promise((resolve) => {
+      const box = $("expr-box"), base = s.revised || s.original;
+      const close = () => { box.hidden = true; box.replaceChildren(); $("question").hidden = false; resolve(); };
+      const btn = (text, cls, fn) => h("button", { className: cls, type: "button", textContent: text, onclick: fn });
+      const load = async () => {
+        box.replaceChildren(h("p", { textContent: "다른 표현을 찾고 있어요…" }));
+        box.hidden = false; $("question").hidden = true;
+        let r;
+        try {
+          const res = await fetch("/suggest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sentence: base }) });
+          if (!res.ok) throw new Error(String(res.status));
+          r = await res.json();
+        } catch (e) {
+          track("expr_fail", { message: String(e.message).slice(0, 100) });
+          box.replaceChildren(h("p", { className: "ask", textContent: "다른 표현을 불러오지 못했어요. 쓴 문장은 그대로 있어요." }),
+            h("div", { className: "row" }, btn("다시 불러오기", "btn-sm", load), btn("그대로 쓸게요", "btn-sm", close)));
+          return;
+        }
+        log("④ 표현 추천", r);
+        const opts = (r.options || []).filter((o) => typeof o === "string" && o && o !== base).slice(0, 3);
+        track("expr_shown", { options: opts.length });
+        if (!opts.length) { close(); return; }
+        const radio = (value, text, checked) => h("label", {}, h("input", { type: "radio", name: "expr", value, checked: !!checked }), h("span", { textContent: text }));
+        box.replaceChildren(
+          h("p", { className: "ask", textContent: "지금 문장도 좋아요. 다른 말로 쓸 수도 있어요." }),
+          h("p", { textContent: "내가 쓴 문장: " + base }),
+          ...opts.map((o, i) => radio(String(i), o, false)),
+          radio("keep", "원래 문장 그대로 쓸래요", true),
+          h("div", { className: "row" }, btn("확인하기", "yes", () => {
+            const v = (box.querySelector("input[name=expr]:checked") || {}).value;
+            const picked = v !== undefined && v !== "keep" ? opts[Number(v)] : null;
+            track("expr_pick", { picked: picked ? Number(v) : null, options: opts.length });
+            s.expression_choice = { base, options: opts, picked };          // 무엇을 보여 줬고 무엇을 골랐는지 (DB의 expression_choice)
+            if (picked) s.revised = picked;
+            s.saveState = "pending";
+            if (dbMode) queueSave(s);
+            close();
+            setNotice(picked ? "잘했어요! 내 뜻에 맞는 표현을 골랐어요." : "");
+            renderList();
+          })));
+        const first = box.querySelector("input"); if (first) first.focus();
+      };
+      load();
+    });
+  }
+
+  /* ---------- 검사 결과 처리 ---------- */
+  async function handle(r) {
+    attempt = r.validation_attempt;
+    clearNotice();
+
+    if (r.route === "correction") {
+      carried = [];
+      const wasEditing = editingId;
+      let s = sentences.find((x) => x.id === wasEditing);
+      if (!s) {                                                  // 새 줄: 맨 뒤에 붙이거나, 고른 자리에 끼워 넣는다
+        s = { id: nextId++ };
+        if (insertAt !== null && insertAt < sentences.length) { s.inserted = true; sentences.splice(insertAt, 0, s); } else sentences.push(s);
+      }
+      insertAt = null;
+      s.work = { original: r.original_sentence, progress: "교정을 시작해요…", tries, reasons: reasonsNow.slice() };
+      reasonsNow = [];
+      $("box").value = "";
+      sentences.forEach((x) => { x.openFix = false; });          // 이전 줄들의 '고친 곳'은 접어 둔다
+      busy = true; refreshComposer(); scrollToCard(s.id);
+      await runCorrection(s);
+      if (dbMode && s.saveState === "pending") queueSave(s);   // 교정이 끝난 문장을 바로 임시저장 (기다리지 않고 다음 입력을 받는다)
+      if (bookKind === "fairy" && s.original && !s.work) await offerExpressions(s);   // 동화: 다르게 쓴 표현을 보여 주고 고르게 한다
+      busy = false;
+      if (s.work && s.work.status === "error") {                // 실패: 새 줄이었다면 목록에서 치우고 입력으로 돌려준다 (다시쓰기였다면 기존 문장 유지)
+        s.work.error += " 다시 시도해 주세요.";
+        const msg = s.work.error;
+        if (!s.original) sentences = sentences.filter((x) => x.id !== s.id); else delete s.work;
+        setNotice(msg); $("box").value = r.original_sentence;
+      }
+      editingId = null; attempt = 0; tries = 0;
+      refreshComposer(); loadQuestion(); $("box").focus();
+      const last = s.id; setTimeout(() => scrollToCard(last), 50);
+      return;
+    }
+
+    tries += 1;                                                   // 통과하지 못한 제출
+    if (!r.awaiting_choice) reasonsNow.push(...(r.validation_log || []).filter((l) => !String(l).startsWith("[확인용]")));
+    setNotice(r.retry_message);
+    if (r.highlights.length) { $("shown").textContent = mark(r.display_text, r.highlights); $("shown").hidden = false; }
+
+    if (r.awaiting_choice) {                                      // 선택지 팝업 대신 버튼으로 표시
+      tries -= 1;                                                 // 선택은 실패가 아니다
+      const chosen = new Array(r.highlights.length).fill(null);
+      r.highlights.forEach((hl, i) => {
+        const row = h("div", {}, "'" + hl.text + "' → ");
+        hl.choices.forEach((label, n) => {
+          row.append(h("button", { type: "button", textContent: label, onclick: async () => {
+            chosen[i] = n;
+            if (chosen.every((v) => v !== null)) { carried = carried.concat(chosen); await handle(await send(carried)); }
+          } }));
+        });
+        $("choices").append(row);
+      });
+      return;
+    }
+    carried = [];
+    if (r.route === "skipped") {                                  // 3번 실패: 이 줄 건너뜀
+      $("box").value = "";
+      if (editingId !== null) {                                   // 다시쓰기였다면 기존 문장을 그대로 둔다
+        setNotice((r.retry_message || "") + " 기존 문장을 그대로 두었어요.");
+        editingId = null; attempt = 0; tries = 0; reasonsNow = []; refreshComposer(); loadQuestion();
+      } else { tries = 0; reasonsNow = []; insertAt = null; }
+    }
+  }
+
+  async function submit() {
+    if (busy) return;
+    carried = [];
+    busy = true; refreshComposer();                               // 검사 중에도 중복 제출을 막는다
+    try { await handle(await send([])); }
+    catch (e) { setNotice("검사 중에 문제가 생겼어요: " + e); }
+    busy = false; refreshComposer();
+    if (!$("write").hidden) $("box").focus();
+  }
+
+  $("go").onclick = submit;
+  $("box").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) submit(); });
+  $("cancel-edit").onclick = cancelEdit;
+
+  /* ---------- 전체 글 ---------- */
+  $("finish").onclick = () => {
+    track("finish_click", { sentences: sentences.filter((s) => s.original).length });
+    $("all-text").textContent = sentences.filter((s) => s.original).map((s) => s.revised || s.original).join(" ");
+    $("write").hidden = true; $("all").hidden = false;
+  };
+  $("back").onclick = () => {
+    track("back_to_write");
+    $("all").hidden = true; $("write").hidden = false; $("save-err").hidden = true;
+    $("save-story").disabled = false; $("save-story").textContent = "이야기 저장하기";
+    $("box").focus();
+  };
+  $("restart").onclick = () => {
+    sentences = []; editingId = null; attempt = 0; carried = []; tries = 0; reasonsNow = [];
+    $("all").hidden = true; $("write").hidden = false;
+    clearNotice(); refreshComposer(); loadQuestion();
+  };
+
+  // '이야기 저장하기': 저장 안 된 문장을 먼저 모두 저장하고 → 글을 '완성'으로 → 목록 화면의 결과 보기(저장했어요!)로 넘어간다
+  $("save-story").onclick = async () => {
+    const btn = $("save-story");
+    btn.disabled = true; btn.textContent = "저장 중…"; $("save-err").hidden = true;
+    try {
+      if (!(await retrySaves())) throw new Error("저장되지 않은 문장이 있어요.");
+      await api("POST", "/api/entries/" + entryId + "/complete");
+      track("story_saved", { entry: entryId, sentences: sentences.filter((s) => s.original).length });
+      leaving = true;
+      location.href = "/books#entry/" + entryId + "/" + encodeURIComponent(BOOK) + "/1/saved";
+    } catch (e) {
+      $("save-err").textContent = "이야기를 저장하지 못했어요. 쓴 이야기는 그대로 있어요. (" + e.message + ")";
+      $("save-err").hidden = false; btn.disabled = false; btn.textContent = "다시 저장하기";
+      track("story_save_fail", { entry: entryId, message: String(e.message).slice(0, 200) });
+    }
+  };
+
+  /* ---------- 로그 저장 ---------- */
+  /* (개발용 로그 저장 버튼은 없앴다. 로그는 콘솔과 서버 파일에 있다)
+  $("logsave").onclick = () => {
+    const text = $("log").textContent;
+    if (!text.trim()) { $("logmsg").textContent = "저장할 로그가 없어요"; return; }
+    const d = new Date(), p = (n) => String(n).padStart(2, "0");
+    const name = "diary_log_" + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "_" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + ".txt";
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const a = h("a", { href: url, download: name });
+    document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    $("logmsg").textContent = name + " 저장했어요";
+  }; */
+
+  // 잃어버릴 것이 있을 때만 한 번 물어본다: 연습 모드는 쓴 문장 전부, 저장 모드는 저장 안 된 문장과 쓰던(확인 전) 문장
+  window.addEventListener("beforeunload", (e) => {
+    if (leaving) return;
+    const typing = $("box").value.trim() !== "" || busy;
+    const unsaved = dbMode ? sentences.some((s) => s.original && s.saveState !== "saved") : sentences.some((s) => s.original);
+    if (typing || unsaved) { track("leave_prompt", { typing: !!typing, unsaved: !!unsaved }); e.preventDefault(); e.returnValue = ""; }
+  });
+
+  boot();
+</script>
+</body>
+</html>
