@@ -1,2 +1,7 @@
 uvicorn
 fastapi
+# DB 연동 (db.py · books_repo.py · books_api.py)
+sqlalchemy                     # DB 접속과 쿼리 실행
+pymysql                        # MySQL 드라이버 (DATABASE_URL 의 mysql+pymysql)
+cryptography                   # MySQL 8 의 기본 로그인 방식(caching_sha2_password)에 필요
+# 교정 모델까지 돌릴 때(USE_MODELS=1)는 requirements-models.txt 도 설치한다
