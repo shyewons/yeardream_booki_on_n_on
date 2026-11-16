@@ -35,3 +35,7 @@ id_ed25519
 
 # 소스 코드, package.json, package-lock.json, .gitignore는 공유합니다.
 # 팀에서 공유하기로 한 temp/ 폴더는 제외하지 않습니다.
+
+# 푸시 불필요: 용량이 큰 RAG 벡터 DB, 개발용 로그 폴더 (아이가 쓴 문장이 들어 있음)
+chroma_db/
+logs/

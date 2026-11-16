@@ -1,0 +1,27 @@
+# 교정 모델을 실제로 돌릴 때(USE_MODELS=1)만 필요한 라이브러리 (Python 3.10 이상, GPU 권장)
+# 모델 없이 화면 흐름만 볼 때는 requirements.txt 만 설치하면 된다.  설치: pip install -r requirements-models.txt
+# (diary_pipeline 담당 팀원의 requirements.txt 내용 그대로)
+# 코드에서 직접 불러오는 것만 적었다. numpy · huggingface_hub · tokenizers · safetensors 등은 아래를 깔면 자동으로 같이 깔린다.
+# Windows 에서는 설치 전에 터미널에서 $env:PYTHONUTF8="1" 를 한 번 실행하세요.
+
+# ── 그래프 ──────────────────────────────────────────────────────────────
+langgraph                      # 노드를 엣지로 연결하고 분기 (graph.py)
+
+# ── 모델 실행 ───────────────────────────────────────────────────────────
+torch                          # 모든 모델을 GPU·CPU에서 돌리는 기반 (models.py)
+transformers>=4.56,<5.4        # et5 교정 모델(correct.py)과 Kanana 설명문 LLM(models.py)
+                               #   5.4 이상은 Kanana 2.1B 로딩 시 오류가 나서 5.4 미만으로 고정
+accelerate                     # Kanana 를 device_map="auto" 로 올릴 때 필요 (models.py)
+sentencepiece                  # et5 토크나이저 (correct.py)
+protobuf                       # et5 토크나이저 파일을 읽을 때 필요한 경우가 있음 (correct.py)
+sentence-transformers          # 임베딩 모델 (models.py)
+                               #   KURE-v1: ④ 근거 검색의 쿼리·문서 임베딩
+                               #   bge-m3 : 벡터 DB 만들 때 semantic 청킹의 문장 유사도에만 사용
+kiwipiepy                      # 형태소 분석기 Kiwi: ③ 판정(①~④)과 질의 보강 (query.py)
+
+# ── 벡터 DB ─────────────────────────────────────────────────────────────
+chromadb>=1.0                  # 근거 문서 벡터 저장·코사인 유사도 검색 (vector_db.py)
+                               #   configuration={"hnsw": ...} 문법 때문에 1.0 이상
+
+# ── 벡터 DB 만들 때만 (서비스 실행 중에는 쓰지 않음) ──────────────────────
+pymupdf                        # 해설서 PDF에서 글자 읽기 (vector_db.py)
