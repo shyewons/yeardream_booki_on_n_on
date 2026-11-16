@@ -64,7 +64,9 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 
 ## 로그
 
-화면에는 보이지 않고 `backend/logs/`에 종류별·날짜별 파일로 쌓인다 (한 줄 = JSON 하나, `{"time", "label", "data"}`). 깃에는 올라가지 않는다.
+화면에는 보이지 않고 `backend/logs/`에 종류별·날짜별 파일로 쌓인다 (한 줄 = JSON 하나, `{"time", "user", "label", "data"}`). 깃에는 올라가지 않는다.
+
+`user`는 그 요청을 보낸 사용자의 번호(`users.id`)다. 별명은 적지 않는다. 서버 시작 기록이나 사용자를 알기 전의 요청은 `null`이다. 지금은 더미 사용자 한 명이고, 로그인이 붙으면 `main.py`의 `devlog.user_lookup` 한 줄만 바꾸면 모든 로그에 반영된다.
 
 | 파일 | 내용 |
 |---|---|

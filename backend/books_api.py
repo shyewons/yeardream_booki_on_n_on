@@ -38,6 +38,13 @@ def _guard(fn, *args):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+def _user():
+    """지금 요청의 사용자 번호. 알아낸 번호는 로그에도 알려 준다 (이 요청의 모든 로그 줄에 붙는다)."""
+    uid = _guard(repo.current_user_id)
+    devlog.set_user(uid)
+    return uid
+
+
 def _act(name, result, **ids):
     """저장 동작 하나를 logs/action_날짜.log 에 적고 result 를 그대로 돌려준다. 글 내용은 적지 않고 번호 · 상태 · 개수만 적는다."""
     brief = {}
@@ -62,60 +69,60 @@ def _found(result, what):
 
 @router.get("/books")
 def books(page: int = Query(1, ge=1), size: int | None = Query(None, ge=1, le=repo.MAX_SIZE)):
-    uid = _guard(repo.current_user_id)
+    uid = _user()
     return _guard(repo.list_books, uid, page, size)
 
 
 @router.get("/books/{book_id}/entries")
 def book_entries(book_id: int, page: int = Query(1, ge=1), size: int | None = Query(None, ge=1, le=repo.MAX_SIZE)):
-    uid = _guard(repo.current_user_id)
+    uid = _user()
     return _found(_guard(repo.list_entries, uid, book_id, page, size), "책")
 
 
 @router.get("/entries/{entry_id}")
 def entry(entry_id: int):
-    uid = _guard(repo.current_user_id)
+    uid = _user()
     return _found(_guard(repo.get_entry, uid, entry_id), "글")
 
 
 @router.get("/books/{book_id}/diary/{day}")
 def diary_by_date(book_id: int, day: datetime.date):
-    uid = _guard(repo.current_user_id)
+    uid = _user()
     return _found(_guard(repo.get_entry_by_date, uid, book_id, day.isoformat()), "그 날짜의 일기")
 
 
 # ── 쓰기 ────────────────────────────────────────────────────────────────────
 @router.post("/books")
 def create_book(body: dict = Body(...)):
-    uid = _guard(repo.current_user_id)
-    return _act("create_book", _guard(repo.create_book, uid, (body or {}).get("kind"), (body or {}).get("title")), user=uid)
+    uid = _user()
+    return _act("create_book", _guard(repo.create_book, uid, (body or {}).get("kind"), (body or {}).get("title")))
 
 
 @router.post("/books/{book_id}/entries")
 def open_entry(book_id: int, body: dict | None = Body(None)):
-    uid = _guard(repo.current_user_id)
-    return _found(_act("open_entry", _guard(repo.open_entry, uid, book_id, (body or {}).get("date")), user=uid, book=book_id, date=(body or {}).get("date")), "책")
+    uid = _user()
+    return _found(_act("open_entry", _guard(repo.open_entry, uid, book_id, (body or {}).get("date")), book=book_id, date=(body or {}).get("date")), "책")
 
 
 @router.put("/entries/{entry_id}/sentences/{seq}")
 def put_sentence(entry_id: int, seq: int, body: dict = Body(...)):
-    uid = _guard(repo.current_user_id)
-    return _found(_act("save_sentence", _guard(repo.save_sentence, uid, entry_id, seq, body), user=uid, entry=entry_id, seq=seq), "글")
+    uid = _user()
+    return _found(_act("save_sentence", _guard(repo.save_sentence, uid, entry_id, seq, body), entry=entry_id, seq=seq), "글")
 
 
 @router.post("/entries/{entry_id}/sentences/{seq}/insert")       # 문장 끼워 넣기 (그 자리부터 한 칸씩 뒤로)
 def insert_sentence(entry_id: int, seq: int, body: dict = Body(...)):
-    uid = _guard(repo.current_user_id)
-    return _found(_act("insert_sentence", _guard(repo.insert_sentence, uid, entry_id, seq, body), user=uid, entry=entry_id, seq=seq), "글")
+    uid = _user()
+    return _found(_act("insert_sentence", _guard(repo.insert_sentence, uid, entry_id, seq, body), entry=entry_id, seq=seq), "글")
 
 
 @router.post("/entries/{entry_id}/sentences/{seq}/move")         # 문장 순서 바꾸기  body: {"to": 옮길 자리}
 def move_sentence(entry_id: int, seq: int, body: dict = Body(...)):
-    uid = _guard(repo.current_user_id)
-    return _found(_act("move_sentence", _guard(repo.move_sentence, uid, entry_id, seq, (body or {}).get("to")), user=uid, entry=entry_id, seq=seq, to=(body or {}).get("to")), "글")
+    uid = _user()
+    return _found(_act("move_sentence", _guard(repo.move_sentence, uid, entry_id, seq, (body or {}).get("to")), entry=entry_id, seq=seq, to=(body or {}).get("to")), "글")
 
 
 @router.post("/entries/{entry_id}/complete")
 def complete_entry(entry_id: int):
-    uid = _guard(repo.current_user_id)
-    return _found(_act("complete_entry", _guard(repo.complete_entry, uid, entry_id), user=uid, entry=entry_id), "글")
+    uid = _user()
+    return _found(_act("complete_entry", _guard(repo.complete_entry, uid, entry_id), entry=entry_id), "글")

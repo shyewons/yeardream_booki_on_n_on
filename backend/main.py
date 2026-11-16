@@ -47,6 +47,10 @@ async def lifespan(app):
     devlog.write("server", "stop", None)
 
 
+# 로그에 붙일 사용자 번호: 지금은 더미 사용자 한 명 (이미 알아낸 번호를 쓰고, DB를 새로 묻지 않는다).
+# ★ 로그인이 붙으면 이 한 줄을 '요청(scope)의 토큰 → 사용자 번호' 함수로 바꾼다.
+devlog.user_lookup = lambda scope: books_repo.known_user_id()
+
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(devlog.RequestLog)     # 모든 요청을 logs/request_날짜.log 에 적는다 (경로 · 응답 코드 · 걸린 시간)
 

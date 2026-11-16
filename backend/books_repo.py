@@ -56,6 +56,11 @@ def current_user_id():
     return _user_id
 
 
+def known_user_id():
+    """이미 알아낸 사용자 번호 (DB를 새로 묻지 않는다). 아직 모르면 None. 로그에 사용자 번호를 붙일 때 쓴다."""
+    return _user_id
+
+
 def current_nickname():
     """화면 제목('○○의 목장')에 쓰는 별명. 로그인이 붙으면 current_user_id 와 함께 바꾼다."""
     current_user_id()
