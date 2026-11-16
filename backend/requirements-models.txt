@@ -1,0 +1,25 @@
+# 교정 모델을 실제로 돌릴 때(USE_MODELS=1)만 필요한 라이브러리 (Python 3.10 이상, GPU 권장)
+# 모델 없이 화면 흐름만 볼 때는 requirements.txt 만 설치하면 된다.  설치: pip install -r requirements-models.txt
+# 여기 적은 것은 코드에서 직접 불러오는 라이브러리만이다.
+# numpy · huggingface_hub · tokenizers · safetensors 등은 의존성 덕분에 아래의 라이브러리를 깔면 자동으로 같이 깔린다.
+# 설치하기 전에 터미널에서 $env:PYTHONUTF8="1" 를 꼭 한번 실행하세요.
+# ── 그래프 ──────────────────────────────────────────────────────────────
+langgraph                      # 노드를 엣지로 연결하고 분기하는 그래프 (graph.py)
+
+
+# ── 모델 실행 ───────────────────────────────────────────────────────────
+torch                          # 모든 모델(et5 / Kanana / bge-m3)을 GPU·CPU에서 돌리는 기반 (models/device.py)
+transformers>=4.56,<5.4        # et5 교정 모델과 Kanana LLM 불러오기·생성 (nodes/spell_correct.py, models/llm.py)
+                                         #   5.4 이상은 Kanana 2.1B 로딩시 오류가 나기 때문에 → 5.4 미만으로 고정
+accelerate                           # Kanana 모델을 device_map="auto" 로 GPU에 올릴 때 필요 (models/llm.py)
+sentencepiece                     # et5 토크나이저(T5Tokenizer)가 문장을 토큰으로 나눌 때 사용 (nodes/spell_correct.py)
+protobuf                            # et5 토크나이저 파일을 읽을 때 필요한 경우가 있음 (nodes/spell_correct.py)
+sentence-transformers          # bge-m3 임베딩 모델 불러오기·문장 벡터 만들기 (models/embedding.py)
+                                        #   ④ 근거 검색의 쿼리 임베딩과 벡터 DB 만들 때의 문서 임베딩에 함께 사용
+
+# ── 벡터 DB ─────────────────────────────────────────────────────────────
+chromadb>=1.0                  # 근거 문서 벡터 저장·코사인 유사도 검색 (rag/vector_db.py)
+                                        #   configuration={"hnsw": ...} 문법을 사용하려면 1.0 부터 필요해서 1.0 이상으로 깔아야 함
+
+# ── 벡터 DB 만들 때만 (서비스 실행 중에는 쓰지 않음) ──────────────────────
+pymupdf                        # 맞춤법 해설 PDF에서 글자 읽기 (rag/pdf_loader.py)
