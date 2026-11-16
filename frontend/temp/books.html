@@ -178,6 +178,14 @@ const KIND = { diary: '일기', fairy: '동화' };
 const COVER = { sheep: '🐑', alpaca: '🦙' };
 const statusPill = st => h('span', { class: st === 'done' ? 'pill ok' : 'pill warn', text: st === 'done' ? '완성' : '쓰는 중' });
 
+/* 근거 표시: "한글 맞춤법 제43항 100쪽". 두 문서에 같은 조항 번호가 있어 문서 이름을 붙인다.
+   근거가 여러 개(evidences)면 모두, 없으면 대표 근거(evidence) 하나. 예전 글은 문서 이름이 없어 조항과 쪽만 나온다. */
+function evidenceText(c) {
+  const one = e => [e.part, e.article, e.page ? e.page + '쪽' : null].filter(Boolean).join(' ');
+  const list = (c.evidences && c.evidences.length ? c.evidences : (c.evidence ? [c.evidence] : [])).map(one).filter(Boolean);
+  return list.length ? '근거: ' + list.join(' · ') : '';
+}
+
 /* ---------- 쪽 이동 ---------- */
 function pageNumbers(p, n) {
   if (n <= 9) return Array.from({ length: n }, (_, i) => i + 1);
@@ -349,7 +357,7 @@ async function entryView(id, bookId, page, saved) {
                 s.corrections.map(c => h('div', { class: 'item' },
                   h('p', { class: 'what', text: `${c.before} → ${c.after}` }),
                   c.explanation ? h('p', { class: 'exp', text: c.explanation }) : null,
-                  c.evidence ? h('p', { class: 'ev', text: `근거: ${[c.evidence.article, c.evidence.page != null ? c.evidence.page + '쪽' : null].filter(Boolean).join(' ')}` }) : null)))
+                  evidenceText(c) ? h('p', { class: 'ev', text: evidenceText(c) }) : null)))
             : null)))
       : h('p', { class: 'empty', text: '아직 쓴 문장이 없어요.' }),
     h('div', { class: 'actions-row three' },

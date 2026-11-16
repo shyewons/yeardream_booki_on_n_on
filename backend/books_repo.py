@@ -197,7 +197,7 @@ def get_entry(user_id, entry_id):
     cors = db.query(
         """SELECT c.sentence_id, c.idx, c.start_pos, c.end_pos, c.before_text, c.after_text,
                   c.explanation, c.evidence_doc_id, c.evidence_article, c.evidence_page,
-                  c.evidence_score, c.query_text, c.error_type
+                  c.evidence_score, c.query_text, c.error_type, c.evidence_part, c.evidences
              FROM corrections c
              JOIN sentences s ON s.id = c.sentence_id
             WHERE s.entry_id = :eid
@@ -209,12 +209,14 @@ def get_entry(user_id, entry_id):
     for c in cors:
         evidence = None
         if any(c[k] is not None for k in ("evidence_doc_id", "evidence_article", "evidence_page", "evidence_score")):
-            evidence = {"doc_id": c["evidence_doc_id"], "article": c["evidence_article"],
+            evidence = {"doc_id": c["evidence_doc_id"], "part": c["evidence_part"], "article": c["evidence_article"],
                         "page": c["evidence_page"], "score": c["evidence_score"]}
         by_sentence.setdefault(c["sentence_id"], []).append({
             "index": c["idx"], "start": c["start_pos"], "end": c["end_pos"],
             "before": c["before_text"], "after": c["after_text"], "explanation": c["explanation"],
-            "evidence": evidence, "query": c["query_text"], "error_type": c["error_type"],
+            "evidence": evidence, "query": c["query_text"],
+            "type": c["error_type"],                       # 판정 유형 (파이프라인의 type). DB 칸 이름은 error_type
+            "evidences": _json(c["evidences"]) or [],      # 근거 조항 전체 (최대 3개). 예전 글은 빈 목록
         })
 
     sentences = [{
@@ -278,6 +280,7 @@ MAX_TEXT = 500          # 문장 한 줄 최대 글자 수
 MAX_REASONS = 20        # 틀린 이유 최대 개수
 MAX_REASON_LEN = 300
 MAX_CORRECTIONS = 30    # 한 문장의 교정 항목 최대 개수
+MAX_EVIDENCES = 5       # 교정 항목 하나의 근거 조항 최대 개수 (파이프라인은 최대 3개를 준다)
 
 
 def _own_entry(tx, user_id, entry_id):
@@ -346,6 +349,18 @@ def _opt_float(v):
         return None
 
 
+def _evidence_list(v):
+    """근거 조항 목록(파이프라인의 evidences)을 저장할 JSON 글자로 다듬는다. 없거나 모양이 다르면 None."""
+    if not isinstance(v, list):
+        return None
+    out = []
+    for e in v[:MAX_EVIDENCES]:
+        if isinstance(e, dict):
+            out.append({"doc_id": _cut(e.get("doc_id"), 100), "part": _cut(e.get("part"), 40), "article": _cut(e.get("article"), 100),
+                        "page": _opt_int(e.get("page")), "score": _opt_float(e.get("score")), "source": _cut(e.get("source"), 20)})
+    return json.dumps(out, ensure_ascii=False) if out else None
+
+
 def _insert_corrections(tx, sentence_id, items):
     for i, c in enumerate(items):
         if not isinstance(c, dict):
@@ -353,12 +368,16 @@ def _insert_corrections(tx, sentence_id, items):
         ev = c.get("evidence") if isinstance(c.get("evidence"), dict) else {}
         tx.execute(
             """INSERT INTO corrections (sentence_id, idx, start_pos, end_pos, before_text, after_text, explanation,
-                                        evidence_doc_id, evidence_article, evidence_page, evidence_score, query_text, error_type)
-               VALUES (:sid, :idx, :st, :en, :b, :a, :ex, :doc, :art, :pg, :sc, :q, :et)""",
+                                        evidence_doc_id, evidence_part, evidence_article, evidence_page, evidence_score,
+                                        evidences, query_text, error_type)
+               VALUES (:sid, :idx, :st, :en, :b, :a, :ex, :doc, :part, :art, :pg, :sc, :evs, :q, :et)""",
             {"sid": sentence_id, "idx": _opt_int(c.get("index"), i), "st": _opt_int(c.get("start")), "en": _opt_int(c.get("end")),
              "b": _cut(c.get("before"), 200) or "", "a": _cut(c.get("after"), 200) or "", "ex": c.get("explanation"),
              "doc": _cut(ev.get("doc_id"), 100), "art": _cut(ev.get("article"), 100), "pg": _opt_int(ev.get("page")),
-             "sc": _opt_float(ev.get("score")), "q": _cut(c.get("query"), 500), "et": _cut(c.get("error_type"), 40)})
+             "sc": _opt_float(ev.get("score")), "q": _cut(c.get("query"), 500),
+             "part": _cut(ev.get("part"), 40),                           # 근거 문서 이름 (한글 맞춤법 / 표준어 사정 원칙)
+             "evs": _evidence_list(c.get("evidences")),                  # 근거 조항 전체 (JSON)
+             "et": _cut(c.get("type") or c.get("error_type"), 40)})      # 판정 유형 (파이프라인은 type 으로 준다)
 
 
 def _clean_text(v, name):

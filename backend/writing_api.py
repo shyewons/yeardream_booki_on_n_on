@@ -28,9 +28,9 @@ from typing import Any, Dict, Iterator
 from diary_pipeline import config
 from diary_pipeline.input_validation import validate_sentence, route_after_validation, OPENING_FIRST, OPENING_NEXT
 from diary_pipeline.graph import NODES                            # 팀원이 정한 노드 목록 {이름: 함수}
-from diary_pipeline.nodes.extract_diff import route_after_diff    # 바뀐 곳이 없으면 칭찬, 있으면 쿼리 재작성
-from diary_pipeline.nodes import spell_correct as _spell, rewrite_queries as _rewrite, retrieve_evidence as _retrieve, explain as _explain
-from diary_pipeline.models import llm as _llm, embedding as _embedding      # 모델 캐시(이미 불러왔는지 확인용)
+from diary_pipeline import correct as _correct, query as _query, retrieve as _retrieve, explain as _explain   # 단계별 파일 (preload · 캐시 확인용)
+from diary_pipeline import models as _models                      # 모델 캐시(이미 불러왔는지 확인용)
+from diary_pipeline.correct import route_after_diff               # 바뀐 곳이 없으면 칭찬, 있으면 쿼리 재작성
 from demo_nodes import DEMO_NODES, suggest_expressions
 import devlog
 
@@ -47,10 +47,10 @@ PRELOAD = os.environ.get("PRELOAD", "1") == "1"              # True 면 서버�
 
 STAGE_LABELS = {                                             # 화면에 보여 줄 진행 안내 (아이 눈높이)
     "spell_correct": "맞춤법을 확인하고 있어요", "extract_diff": "바뀐 곳을 찾고 있어요",
-    "rewrite_queries": "맞춤법 규칙을 찾을 준비를 하고 있어요", "retrieve_evidence": "맞춤법 규칙을 찾고 있어요",
+    "rewrite_queries": "어떤 규칙인지 살펴보고 있어요", "retrieve_evidence": "맞춤법 규칙을 찾고 있어요",
     "explain": "설명을 쓰고 있어요",
 }
-MODEL_LIBS = ("torch", "transformers", "sentence_transformers", "chromadb")
+MODEL_LIBS = ("torch", "transformers", "sentence_transformers", "chromadb", "kiwipiepy")
 
 
 # =====================================================================
@@ -107,7 +107,8 @@ def pick_nodes():
     if not USE_MODELS:
         return {**NODES, **DEMO_NODES}, "임시(모델 미연결)"
     if not all(importlib.util.find_spec(m) for m in MODEL_LIBS):
-        print("[app] torch/transformers/sentence-transformers/chromadb 가 없어 임시 모드로 실행합니다.")
+        missing = [m for m in MODEL_LIBS if not importlib.util.find_spec(m)]
+        print(f"[app] 모델 라이브러리({', '.join(missing)})가 없어 임시 모드로 실행합니다.  pip install -r requirements-models.txt")
         return {**NODES, **DEMO_NODES}, "임시(라이브러리 없음)"
     nodes, mode = dict(NODES), "실제 모델"
     if not os.path.isdir(config.DB_PATH):                    # 벡터 DB 폴더가 없으면 근거 검색만 임시로
@@ -131,10 +132,10 @@ def model_loaders(n):
     """모델을 쓰는 단계 -> (화면에 보여 줄 모델 이름, 이미 불러왔는지 확인하는 함수, 불러오는 함수).
     실제 노드를 쓰는 단계만 넣는다 (임시 노드로 대신한 단계는 불러올 모델이 없다)."""
     L = {
-        "spell_correct": ("맞춤법 교정 모델(et5)", _safe(lambda: "et5" in _spell._model), _spell.preload),
-        "rewrite_queries": ("쿼리 재작성 모델(Kanana)", _safe(lambda: config.QUERY_LLM_ID in _llm._models), _rewrite.preload),
-        "retrieve_evidence": ("근거 검색 모델(bge-m3)", _safe(lambda: config.EMBED_MODEL_ID in _embedding._models), _retrieve.preload),
-        "explain": ("설명문 모델(Kanana)", _safe(lambda: config.EXPLAIN_LLM_ID in _llm._models), _explain.preload),
+        "spell_correct": ("맞춤법 교정 모델(et5)", _safe(lambda: "et5" in _correct._model), _correct.preload),
+        "rewrite_queries": ("형태소 분석기(Kiwi)", _safe(lambda: "k" in _query._kiwi), _query.preload),
+        "retrieve_evidence": ("근거 검색 모델(KURE)", _safe(lambda: ("emb", config.EMBED_MODEL_ID) in _models._cache), _retrieve.preload),
+        "explain": ("설명문 모델(Kanana)", _safe(lambda: ("llm", config.EXPLAIN_LLM_ID) in _models._cache), _explain.preload),
     }
     return {k: v for k, v in L.items() if n.get(k) is NODES.get(k)}
 

@@ -22,14 +22,18 @@ def spell_correct(state: dict) -> dict:
 
 
 def rewrite_queries(state: dict) -> dict:
-    """③ 임시: 수정 1건당 쿼리 1개를 문장 틀로 만든다."""
-    return {"rewritten_queries": [f"'{d['before']}'와 '{d['after']}'의 맞춤법 구분 규칙" for d in state["difference"]]}
+    """③ 임시: 수정 1건당 쿼리 1개를 문장 틀로 만들고, 판정 유형은 전부 '①표기만'으로 둔다 (진짜 노드는 Kiwi 로 판정한다)."""
+    diffs = state["difference"]
+    return {"rewritten_queries": [f"'{d['before']}'와 '{d['after']}'의 맞춤법 구분 규칙" for d in diffs],
+            "query_types": ["①표기만"] * len(diffs)}
 
 
 def retrieve_evidence(state: dict) -> dict:
-    """④ 임시: DB가 없으므로 쿼리마다 점수 0.0 의 빈 문서를 돌려준다."""
-    return {"evidence_docs": [{"doc_id": "NONE", "content": "(벡터 DB 미연결)", "score": 0.0, "article": "", "page": 0}
-                              for _ in state["rewritten_queries"]]}
+    """④ 임시: DB가 없으므로 쿼리마다 점수 0.0 의 빈 문서를 돌려준다.
+    진짜 노드와 같이 대표 근거(evidence_docs)와 근거 전체 목록(evidence_lists, 수정 1건당 최대 3개)을 둘 다 낸다."""
+    doc = {"doc_id": "NONE", "content": "(벡터 DB 미연결)", "score": 0.0, "part": "", "article": "", "page": 0, "source": "임시"}
+    n = len(state["rewritten_queries"])
+    return {"evidence_docs": [dict(doc) for _ in range(n)], "evidence_lists": [[dict(doc)] for _ in range(n)]}
 
 
 def explain(state: dict) -> dict:

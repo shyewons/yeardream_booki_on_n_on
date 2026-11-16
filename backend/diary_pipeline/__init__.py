@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """일기 모드 파이프라인: 유효성 검사 → 맞춤법 교정 → 근거 검색 → 초등학생용 설명문 → JSON.
 
-    from diary_pipeline import run_diary, to_json
+    from diary_pipeline import run_diary, to_json, preload_models
     result = run_diary({"user_input": "...", "validation_attempt": 0, "previous_sentences": [], "choice_picks": []})
     print(to_json(result))
 """
@@ -14,6 +14,6 @@ def __getattr__(name):
         from . import graph
         return getattr(graph, name)
     if name == "to_json":
-        from .nodes.build_response import to_json
+        from .response import to_json
         return to_json
     raise AttributeError(name)

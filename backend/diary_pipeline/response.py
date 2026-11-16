@@ -4,7 +4,7 @@
 import json
 from datetime import datetime, timezone, timedelta
 
-from ..input_validation import route_after_validation
+from .input_validation import route_after_validation
 
 KST = timezone(timedelta(hours=9))
 VALIDATION_KEYS = ["is_valid", "original_sentence", "retry_message", "highlights", "display_text", "awaiting_choice",
@@ -25,6 +25,8 @@ def build_response(state: dict) -> dict:
         queries = state.get("rewritten_queries", [])
         docs = state.get("evidence_docs", [])
         exps = state.get("explanations", [])
+        types = state.get("query_types", [])
+        ev_lists = state.get("evidence_lists", [])
         corrections = []
         for i, d in enumerate(diffs):
             doc = docs[i] if i < len(docs) else None
@@ -35,9 +37,16 @@ def build_response(state: dict) -> dict:
                 "start": d["start"], "end": d["end"],        # 원문 속 위치 (화면에서 밑줄 칠 때 사용)
                 "explanation": exps[i] if i < len(exps) else None,
                 "query": queries[i] if i < len(queries) else None,
-                "evidence": None if doc is None else {       # 근거 문서 정보 (본문은 길어서 제외)
-                    "doc_id": doc["doc_id"], "article": doc["article"], "page": doc["page"], "score": doc["score"],
+                "type": types[i] if i < len(types) else None,   # ①표기만 / ②띄어쓰기+구체 / ③띄어쓰기+표기 / ④일반 띄어쓰기
+                "evidence": None if doc is None else {       # 근거 문서 정보 (본문은 길어서 제외) — 대표 1개, 설명문의 근거
+                    "doc_id": doc["doc_id"], "part": doc.get("part"), "article": doc["article"],
+                    "page": doc["page"], "score": doc["score"],
                 },
+                "evidences": [                               # 최종 근거 조항 전체 (최대 3개, source: 검색/규칙)
+                    {"doc_id": e["doc_id"], "part": e.get("part"), "article": e["article"], "page": e["page"], "score": e["score"],
+                     "source": e.get("source")}
+                    for e in (ev_lists[i] if i < len(ev_lists) else [])
+                ],
             })
         correction = {
             "original_sentence": state["original_sentence"],

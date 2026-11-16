@@ -1,43 +1,40 @@
 # -*- coding: utf-8 -*-
-"""그래프 연결만 담당 (노드 코드는 nodes/, 유효성 검사는 input_validation.py).
+"""노드 연결(엣지·분기)과 실행 함수.
 
-  START → validate ─┬─ retry / skipped ─────────────────────────────────────────────────────┐
-                    └─ correction → spell_correct → extract_diff ─┬─ (차이 없음) compliment ──┤
-                                                                  └─ (차이 있음) rewrite_queries │
-                                                                       → retrieve_evidence → explain ┤
-                                                                           build_response (JSON) ◀───┘ → END
+  START → validate ─┬─ retry / skipped ─────────────────────────────────────────────┐
+                    └─ correction → spell_correct → extract_diff ─┬─ compliment ─────┤
+                                                                  └─ rewrite_queries  │
+                                             → retrieve_evidence → explain ───────────┤
+                                                                     build_response ◀─┘ → END
 
-노드를 다른 구현으로 갈아끼울 때는 NODES 에서 함수만 바꾸면 된다 (읽고 쓰는 State 키는 nodes/__init__.py 표 참고)."""
+노드를 다른 구현으로 갈아끼울 때는 NODES 에서 함수만 바꾸거나 build_graph({"이름": 새 함수}) 로 넘긴다."""
 from .state import PipelineState
 from .input_validation import validate_node, route_after_validation
-from .nodes import spell_correct, extract_diff, compliment, rewrite_queries, retrieve_evidence, explain, build_response
+from . import correct, query, retrieve, explain, response
 
 NODES = {
-    "validate": validate_node,                                   # input_validation.py (그대로)
-    "spell_correct": spell_correct.spell_correct,
-    "extract_diff": extract_diff.extract_diff,
-    "compliment": compliment.compliment,
-    "rewrite_queries": rewrite_queries.rewrite_queries,
-    "retrieve_evidence": retrieve_evidence.retrieve_evidence,
-    "explain": explain.explain,
-    "build_response": build_response.build_response,
+    "validate": validate_node,                       # input_validation.py (팀원 코드, 수정 없음)
+    "spell_correct": correct.spell_correct,          # ① et5 교정
+    "extract_diff": correct.extract_diff,            # ② 바뀐 곳
+    "compliment": correct.compliment,                # 고칠 곳 없음 → 칭찬
+    "rewrite_queries": query.rewrite_queries,        # ③ Kiwi 판정 + 질의 보강
+    "retrieve_evidence": retrieve.retrieve_evidence, # ④ KURE 벡터 검색 + 근거 결정기
+    "explain": explain.explain,                      # ⑤ Kanana 설명문
+    "build_response": response.build_response,       # JSON 묶기
 }
 
 
 def build_graph(nodes: dict = None):
-    """nodes 로 일부 노드만 바꿔 끼워 그래프를 만들 수도 있다. 예: build_graph({"spell_correct": my_new_fn})"""
     from langgraph.graph import StateGraph, START, END
     n = {**NODES, **(nodes or {})}
-
     g = StateGraph(PipelineState)
     for name, fn in n.items():
         g.add_node(name, fn)
-
     g.add_edge(START, "validate")
     g.add_conditional_edges("validate", route_after_validation,
                             {"correction": "spell_correct", "retry": "build_response", "skipped": "build_response"})
     g.add_edge("spell_correct", "extract_diff")
-    g.add_conditional_edges("extract_diff", extract_diff.route_after_diff, ["compliment", "rewrite_queries"])
+    g.add_conditional_edges("extract_diff", correct.route_after_diff, ["compliment", "rewrite_queries"])
     g.add_edge("rewrite_queries", "retrieve_evidence")
     g.add_edge("retrieve_evidence", "explain")
     g.add_edge("explain", "build_response")
@@ -69,7 +66,7 @@ def run_diary(payload: dict) -> dict:
 
 def preload_models() -> None:
     """서버 시작 시 한 번 불러 두면 첫 요청이 느려지지 않는다."""
-    spell_correct.preload()
-    rewrite_queries.preload()
-    retrieve_evidence.preload()
+    correct.preload()
+    query.preload()
+    retrieve.preload()
     explain.preload()
