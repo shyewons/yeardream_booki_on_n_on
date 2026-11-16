@@ -14,15 +14,41 @@
   /health                      상태 확인
   /api/...                     책 · 글 목록과 저장 (books_api.py → books_repo.py → db.py)
   /question /topics /validate /correct /suggest      글쓰기: 질문 · 검사 · 교정 · 표현 추천 (writing_api.py)
+  /log/ui                      화면 동작 기록 (devlog.py). 로그는 backend/logs/ 에 종류별로 쌓인다
   / , /books                   (임시) frontend/temp 의 시험용 화면. React 화면이 완성되면 proto_pages.py 와 아래 두 줄을 지운다
 """
+import os
+import sys
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 import db                                  # 가장 먼저: backend/.env 를 읽어 환경변수로 넣는다 (아래 파일들이 불러올 때 설정을 읽는다)
 from books_api import router as books_router
-from writing_api import lifespan, router as writing_router
+import books_repo
+import devlog
+import writing_api
+from writing_api import router as writing_router
 
-app = FastAPI(lifespan=lifespan)          # lifespan: 모델 사용 모드일 때 서버를 켜면서 모델을 미리 불러온다
+
+@asynccontextmanager
+async def lifespan(app):
+    """서버가 켜질 때: 그때의 설정을 logs/server_날짜.log 에 남기고, 모델 사용 모드면 모델을 미리 불러온다."""
+    devlog.write("server", "start", {
+        "use_models": writing_api.USE_MODELS, "preload": writing_api.PRELOAD, "demo_delay": writing_api.DEMO_DELAY,
+        "mode": writing_api.pick_nodes()[1],                              # 실제로 돌게 될 모드 (라이브러리 · 벡터 DB 유무까지 반영)
+        "database_url_set": bool(os.environ.get("DATABASE_URL")),         # 주소 자체는 적지 않는다 (비밀번호가 들어 있다)
+        "nickname": os.environ.get("DUMMY_NICKNAME", "dummy_user"),
+        "page_size": {"books": books_repo.PAGE_SIZE_BOOKS, "entries": books_repo.PAGE_SIZE_ENTRIES},
+        "python": sys.version.split()[0], "log_dir": os.path.abspath(devlog.log_dir()),
+    })
+    async with writing_api.lifespan(app):
+        yield
+    devlog.write("server", "stop", None)
+
+
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(devlog.RequestLog)     # 모든 요청을 logs/request_날짜.log 에 적는다 (경로 · 응답 코드 · 걸린 시간)
 
 
 # api 상태 확인용 테스트 코드
@@ -33,6 +59,7 @@ def health():
 
 app.include_router(books_router)          # /api/...
 app.include_router(writing_router)        # /question /topics /validate /correct /suggest
+app.include_router(devlog.router)         # /log/ui
 
 from proto_pages import router as proto_router        # (임시) 시험용 화면  ← React 화면이 완성되면 이 두 줄과 proto_pages.py 삭제
 app.include_router(proto_router)

@@ -21,18 +21,37 @@ from fastapi import APIRouter, Body, HTTPException, Query
 
 import books_repo as repo
 import db
+import devlog
 
 router = APIRouter(prefix="/api")
 
 
 def _guard(fn, *args):
-    """DB 쪽 문제(설정 없음, 연결 실패, 더미 사용자 없음)를 503 으로 바꿔 준다."""
+    """DB 쪽 문제(설정 없음, 연결 실패, 더미 사용자 없음)를 503 으로 바꿔 준다. 문제는 로그(error / action)에도 남긴다."""
     try:
         return fn(*args)
     except (db.DBNotConfigured, db.DBUnavailable, repo.NoUser) as e:
+        devlog.error("db", e, {"call": getattr(fn, "__name__", "")})
         raise HTTPException(status_code=503, detail=str(e))
     except repo.BadRequest as e:
+        devlog.write("action", "rejected", {"call": getattr(fn, "__name__", ""), "reason": str(e)})
         raise HTTPException(status_code=400, detail=str(e))
+
+
+def _act(name, result, **ids):
+    """저장 동작 하나를 logs/action_날짜.log 에 적고 result 를 그대로 돌려준다. 글 내용은 적지 않고 번호 · 상태 · 개수만 적는다."""
+    brief = {}
+    if isinstance(result, dict):
+        for key in ("id", "kind", "seq", "changed", "moved", "status"):
+            if isinstance(result.get(key), (str, int, bool)):
+                brief[key] = result[key]
+        entry = result.get("entry")
+        if isinstance(entry, dict):
+            brief["entry"] = {k: entry.get(k) for k in ("id", "status") if k in entry}
+        if isinstance(result.get("sentences"), list):
+            brief["sentences"] = len(result["sentences"])
+    devlog.write("action", name, {**ids, "found": result is not None, "result": brief})
+    return result
 
 
 def _found(result, what):
@@ -69,34 +88,34 @@ def diary_by_date(book_id: int, day: datetime.date):
 @router.post("/books")
 def create_book(body: dict = Body(...)):
     uid = _guard(repo.current_user_id)
-    return _guard(repo.create_book, uid, (body or {}).get("kind"), (body or {}).get("title"))
+    return _act("create_book", _guard(repo.create_book, uid, (body or {}).get("kind"), (body or {}).get("title")), user=uid)
 
 
 @router.post("/books/{book_id}/entries")
 def open_entry(book_id: int, body: dict | None = Body(None)):
     uid = _guard(repo.current_user_id)
-    return _found(_guard(repo.open_entry, uid, book_id, (body or {}).get("date")), "책")
+    return _found(_act("open_entry", _guard(repo.open_entry, uid, book_id, (body or {}).get("date")), user=uid, book=book_id, date=(body or {}).get("date")), "책")
 
 
 @router.put("/entries/{entry_id}/sentences/{seq}")
 def put_sentence(entry_id: int, seq: int, body: dict = Body(...)):
     uid = _guard(repo.current_user_id)
-    return _found(_guard(repo.save_sentence, uid, entry_id, seq, body), "글")
+    return _found(_act("save_sentence", _guard(repo.save_sentence, uid, entry_id, seq, body), user=uid, entry=entry_id, seq=seq), "글")
 
 
 @router.post("/entries/{entry_id}/sentences/{seq}/insert")       # 문장 끼워 넣기 (그 자리부터 한 칸씩 뒤로)
 def insert_sentence(entry_id: int, seq: int, body: dict = Body(...)):
     uid = _guard(repo.current_user_id)
-    return _found(_guard(repo.insert_sentence, uid, entry_id, seq, body), "글")
+    return _found(_act("insert_sentence", _guard(repo.insert_sentence, uid, entry_id, seq, body), user=uid, entry=entry_id, seq=seq), "글")
 
 
 @router.post("/entries/{entry_id}/sentences/{seq}/move")         # 문장 순서 바꾸기  body: {"to": 옮길 자리}
 def move_sentence(entry_id: int, seq: int, body: dict = Body(...)):
     uid = _guard(repo.current_user_id)
-    return _found(_guard(repo.move_sentence, uid, entry_id, seq, (body or {}).get("to")), "글")
+    return _found(_act("move_sentence", _guard(repo.move_sentence, uid, entry_id, seq, (body or {}).get("to")), user=uid, entry=entry_id, seq=seq, to=(body or {}).get("to")), "글")
 
 
 @router.post("/entries/{entry_id}/complete")
 def complete_entry(entry_id: int):
     uid = _guard(repo.current_user_id)
-    return _found(_guard(repo.complete_entry, uid, entry_id), "글")
+    return _found(_act("complete_entry", _guard(repo.complete_entry, uid, entry_id), user=uid, entry=entry_id), "글")

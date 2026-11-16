@@ -248,6 +248,7 @@ function nameView(kind) {
     msg.textContent = ''; go.disabled = true;
     try {
       const b = await api('/api/books', { kind, title });
+      track('book_created', { book: b.id, kind });
       location.href = `/?book=${b.id}` + (kind === 'diary' ? `&date=${todayKST()}` : '');
     } catch (e) { msg.textContent = e.message; go.disabled = false; }
   } }, h('label', { for: 'pet-name', text: '동물 이름' }), input, msg, go);
@@ -276,8 +277,10 @@ async function bookView(id, page) {
         msg.textContent = '';
         try {
           const d = await api(`/api/books/${id}/diary/${input.value}`);
+          track('date_find', { book: id, date: input.value, found: true });
           location.hash = `entry/${d.entry.id}/${id}/${page}`;
         } catch (e) {
+          track('date_find', { book: id, date: input.value, found: false, status: e.status });
           if (e.status === 404) {
             msg.replaceChildren('그 날짜에는 일기가 없어요. ',
               input.value <= todayKST() ? h('a', { href: `/?book=${id}&date=${input.value}`, text: '이 날짜로 쓰기' }) : '');
@@ -372,6 +375,16 @@ function showError(e) {
 }
 
 let seq = 0;
+/* 화면 동작 기록: 어느 화면을 열었고 무엇을 눌렀는지를 서버의 logs/ui_날짜.log 로 보낸다 (결과를 기다리지 않고, 실패해도 무시한다) */
+const SID = Math.random().toString(36).slice(2, 10);
+function track(event, data) {
+  try {
+    const body = JSON.stringify({ event, sid: SID, page: 'farm', data: data || null });
+    if (navigator.sendBeacon) navigator.sendBeacon('/log/ui', new Blob([body], { type: 'application/json' }));
+    else fetch('/log/ui', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+  } catch (e) { /* 기록을 못 해도 화면은 그대로 */ }
+}
+
 async function route() {
   const my = ++seq;
   const [name, a, b, c, d] = (location.hash.slice(1) || 'shelf/1').split('/');
@@ -384,12 +397,13 @@ async function route() {
     else if (name === 'new') r = a ? nameView(a) : kindView();
     else r = await shelfView(+a || 1);
     if (my !== seq || !r) return;                 // 그 사이에 다른 화면으로 옮겼거나, 쪽 번호를 고쳐 다시 부르는 중
+    track('view', { name: name || 'shelf', a: a || null, b: b || null, page: c || null, saved: d === 'saved' });
     setHeader(r);
     document.title = r.title;
     view.replaceChildren(r.node);
     window.scrollTo(0, 0);
   } catch (e) {
-    if (my === seq) showError(e);
+    if (my === seq) { track('view_fail', { name, a: a || null, status: e.status || null }); showError(e); }
   }
 }
 window.addEventListener('hashchange', route);

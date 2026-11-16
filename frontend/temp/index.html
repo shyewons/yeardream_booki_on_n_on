@@ -212,6 +212,17 @@
   /* ---------- 로그 ---------- */
   // 개발용 로그는 화면에 보이지 않는다. 브라우저 개발자 도구의 콘솔(F12)에만 적는다 (서버는 logs/dev_날짜.log 에 따로 적는다).
   function log(label, obj) { try { console.debug("[일기 로그] " + label, obj); } catch (e) { /* 콘솔이 없어도 그대로 진행 */ } }
+  // 화면 동작 기록: 무엇을 눌렀는지를 서버의 logs/ui_날짜.log 로 보낸다 (결과를 기다리지 않고, 실패해도 무시한다).
+  // 문장 내용은 보내지 않는다 (번호 · 개수 · 고른 항목만).
+  const SID = Math.random().toString(36).slice(2, 10);       // 이 화면을 연 한 번을 묶는 번호
+  function track(event, data) {
+    try {
+      const body = JSON.stringify({ event, sid: SID, page: "write", data: data || null });
+      if (navigator.sendBeacon) navigator.sendBeacon("/log/ui", new Blob([body], { type: "application/json" }));
+      else fetch("/log/ui", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
+    } catch (e) { /* 기록을 못 해도 글쓰기는 그대로 */ }
+  }
+
 
   /* =====================================================================
      DB 저장: 주소에 ?book=책번호&date=2026-11-12 가 있으면 그 책의 그 날짜 글을 열고, 쓰는 동안 저장한다.
@@ -288,7 +299,7 @@
       setEntryStatus(r.entry.status);
       lastSaved = String(r.saved_at || "").slice(11, 16);
       return true;
-    } catch (e) { s.saveState = "error"; s.saveError = e.message; return false; }
+    } catch (e) { s.saveState = "error"; s.saveError = e.message; track("save_fail", { seq, message: String(e.message).slice(0, 200) }); return false; }
   }
   function queueSave(s) {
     if (!dbMode || !entryId) return Promise.resolve(true);
@@ -317,6 +328,7 @@
     if (!dbMode) {                                   // 연습 모드: 저장 없이 쓰기만
       $("title").textContent = "일기 쓰기 · 연습 (저장되지 않아요)";
       $("practice-note").hidden = false;
+      track("page_open", { mode: "practice" });
       refreshComposer(); loadQuestion();
       return;
     }
@@ -338,6 +350,7 @@
         pick.value = String(r.entry.date).slice(0, 10);
         pick.max = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(new Date());
         pick.onchange = () => {
+          if (pick.value && pick.value !== String(r.entry.date).slice(0, 10)) track("date_change", { from: String(r.entry.date).slice(0, 10), to: pick.value });
           if (pick.value && pick.value !== String(r.entry.date).slice(0, 10))
             location.href = "/?book=" + encodeURIComponent(BOOK) + "&date=" + pick.value;
           pick.value = String(r.entry.date).slice(0, 10);     // 나가기를 취소했을 때 표시를 되돌린다
@@ -351,8 +364,10 @@
         if (!topic && !sentences.length) openTopics(false); else renderTopicLine();
       }
       setSaveBar("", "");
+      track("page_open", { mode: "db", book: BOOK, date: DAY, entry: entryId, kind: bookKind, status: r.entry.status, sentences: sentences.length });
       busy = false; refreshComposer(); loadQuestion(); $("box").focus();
     } catch (e) {
+      track("open_fail", { book: BOOK, date: DAY, message: String(e.message).slice(0, 200) });
       const el = $("savebar"); el.className = "err"; el.hidden = false;
       el.replaceChildren(h("span", { textContent: "글을 불러오지 못했어요. " + e.message }),
         h("button", { className: "btn-sm", type: "button", textContent: "다시 시도", onclick: boot }),
@@ -377,6 +392,8 @@
     const r = await res.json();
     log("① 유효성 검사 요청", body);
     log("② 유효성 검사 응답", r);
+    track("validate", { attempt: body.validation_attempt, chars: body.user_input.length, route: r.route, valid: !!r.is_valid, awaiting_choice: !!r.awaiting_choice,
+                        editing: editingId !== null, inserting: insertAt !== null, picks: (picks || []).length });
     return r;
   }
 
@@ -407,6 +424,7 @@
   }
   function chooseTopic(v) {
     topic = v || ""; storeTopic(topic);
+    track(v ? "topic_pick" : "topic_skip", v ? { topic: v, shown: shownTopics.length } : { shown: shownTopics.length });
     $("topic-box").hidden = true; $("question").hidden = false;
     renderTopicLine(); loadQuestion(); $("box").focus();
   }
@@ -416,6 +434,7 @@
     try { r = await (await fetch("/topics?exclude=" + encodeURIComponent(shownTopics.join(",")))).json(); }
     catch (e) { return; }                                   // 추천을 못 받아도 글쓰기는 그대로 할 수 있다
     shownTopics = shownTopics.concat([r.pick], r.others);
+    track(more ? "topic_more" : "topic_open", { pick: r.pick, others: r.others });
     const chip = (v, cls) => h("button", { className: "chip" + (cls || ""), type: "button", textContent: v, onclick: () => chooseTopic(v) });
     const yes = chip(r.pick, " yes"); yes.textContent = "좋아요, 이 이야기로!";
     $("topic-box").replaceChildren(
@@ -551,6 +570,7 @@
     if (busy) return;
     const i = sentences.findIndex((x) => x.id === id);
     if (i < 0) return;
+    track("insert_start", { at: i + 1 });
     editingId = null; insertAt = i; attempt = 0; carried = []; tries = 0; reasonsNow = [];
     clearNotice(); $("box").value = "";
     refreshComposer(); loadQuestion(); $("box").focus();
@@ -561,6 +581,7 @@
     if (i < 0 || j < 0 || j >= sentences.length) return;
     if (dbMode && sentences.some((x) => x.original && x.saveState !== "saved")) { setNotice("저장이 끝난 뒤에 순서를 바꿀 수 있어요."); return; }
     const a = sentences[i], b = sentences[j];
+    track("move", { from: i + 1, to: j + 1 });
     clearNotice(); editingId = null; insertAt = null;
     sentences[i] = b; sentences[j] = a;
     refreshComposer(); scrollToCard(a.id);
@@ -575,6 +596,7 @@
         const x = sentences.indexOf(a), y = sentences.indexOf(b);
         if (x >= 0 && y >= 0) { sentences[x] = b; sentences[y] = a; }
         setSaveBar("err", "순서를 바꾸지 못했어요. " + e.message);
+        track("move_fail", { from: i + 1, to: j + 1, message: String(e.message).slice(0, 200) });
       }
       renderList();
     });
@@ -583,6 +605,7 @@
   function startEdit(id) {
     if (busy) return;
     insertAt = null;
+    track("edit_start", { seq: sentences.findIndex((x) => x.id === id) + 1 });
     editingId = id; attempt = 0; carried = []; tries = 0; reasonsNow = [];
     clearNotice(); $("box").value = "";
     refreshComposer(); loadQuestion();
@@ -590,6 +613,7 @@
   }
   function cancelEdit() {
     if (busy) return;
+    track("edit_cancel", { editing: editingId !== null, inserting: insertAt !== null });
     insertAt = null;
     editingId = null; attempt = 0; carried = []; tries = 0; reasonsNow = [];
     clearNotice(); $("box").value = "";
@@ -668,12 +692,14 @@
           if (!res.ok) throw new Error(String(res.status));
           r = await res.json();
         } catch (e) {
+          track("expr_fail", { message: String(e.message).slice(0, 100) });
           box.replaceChildren(h("p", { className: "ask", textContent: "다른 표현을 불러오지 못했어요. 쓴 문장은 그대로 있어요." }),
             h("div", { className: "row" }, btn("다시 불러오기", "btn-sm", load), btn("그대로 쓸게요", "btn-sm", close)));
           return;
         }
         log("④ 표현 추천", r);
         const opts = (r.options || []).filter((o) => typeof o === "string" && o && o !== base).slice(0, 3);
+        track("expr_shown", { options: opts.length });
         if (!opts.length) { close(); return; }
         const radio = (value, text, checked) => h("label", {}, h("input", { type: "radio", name: "expr", value, checked: !!checked }), h("span", { textContent: text }));
         box.replaceChildren(
@@ -684,6 +710,7 @@
           h("div", { className: "row" }, btn("확인하기", "yes", () => {
             const v = (box.querySelector("input[name=expr]:checked") || {}).value;
             const picked = v !== undefined && v !== "keep" ? opts[Number(v)] : null;
+            track("expr_pick", { picked: picked ? Number(v) : null, options: opts.length });
             s.expression_choice = { base, options: opts, picked };          // 무엇을 보여 줬고 무엇을 골랐는지 (DB의 expression_choice)
             if (picked) s.revised = picked;
             s.saveState = "pending";
@@ -779,10 +806,12 @@
 
   /* ---------- 전체 글 ---------- */
   $("finish").onclick = () => {
+    track("finish_click", { sentences: sentences.filter((s) => s.original).length });
     $("all-text").textContent = sentences.filter((s) => s.original).map((s) => s.revised || s.original).join(" ");
     $("write").hidden = true; $("all").hidden = false;
   };
   $("back").onclick = () => {
+    track("back_to_write");
     $("all").hidden = true; $("write").hidden = false; $("save-err").hidden = true;
     $("save-story").disabled = false; $("save-story").textContent = "이야기 저장하기";
     $("box").focus();
@@ -800,11 +829,13 @@
     try {
       if (!(await retrySaves())) throw new Error("저장되지 않은 문장이 있어요.");
       await api("POST", "/api/entries/" + entryId + "/complete");
+      track("story_saved", { entry: entryId, sentences: sentences.filter((s) => s.original).length });
       leaving = true;
       location.href = "/books#entry/" + entryId + "/" + encodeURIComponent(BOOK) + "/1/saved";
     } catch (e) {
       $("save-err").textContent = "이야기를 저장하지 못했어요. 쓴 이야기는 그대로 있어요. (" + e.message + ")";
       $("save-err").hidden = false; btn.disabled = false; btn.textContent = "다시 저장하기";
+      track("story_save_fail", { entry: entryId, message: String(e.message).slice(0, 200) });
     }
   };
 
@@ -826,7 +857,7 @@
     if (leaving) return;
     const typing = $("box").value.trim() !== "" || busy;
     const unsaved = dbMode ? sentences.some((s) => s.original && s.saveState !== "saved") : sentences.some((s) => s.original);
-    if (typing || unsaved) { e.preventDefault(); e.returnValue = ""; }
+    if (typing || unsaved) { track("leave_prompt", { typing: !!typing, unsaved: !!unsaved }); e.preventDefault(); e.returnValue = ""; }
   });
 
   boot();

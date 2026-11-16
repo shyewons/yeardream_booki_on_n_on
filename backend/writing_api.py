@@ -32,6 +32,7 @@ from diary_pipeline.nodes.extract_diff import route_after_diff    # 바뀐 곳�
 from diary_pipeline.nodes import spell_correct as _spell, rewrite_queries as _rewrite, retrieve_evidence as _retrieve, explain as _explain
 from diary_pipeline.models import llm as _llm, embedding as _embedding      # 모델 캐시(이미 불러왔는지 확인용)
 from demo_nodes import DEMO_NODES, suggest_expressions
+import devlog
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -40,8 +41,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # =====================================================================
 USE_MODELS = os.environ.get("USE_MODELS", "0") == "1"        # True 면 실제 모델 사용 (환경변수 USE_MODELS=1 로도 켤 수 있다)
 DEMO_DELAY = float(os.environ.get("DEMO_DELAY", "0"))        # 임시 모드에서 단계마다 늦추는 시간(초). 로딩 화면 시험용
-DEV_LOG = os.environ.get("DEV_LOG", "1") == "1"              # True 면 검사·교정·표현추천의 요청과 결과를 logs/dev_날짜.log 에 적는다 (화면에는 보이지 않는다)
-                                                             #   아이가 쓴 문장이 그대로 들어가므로 파일을 밖에 올리지 말 것. 끄려면 DEV_LOG=0
+                                                             # (개발용 로그 설정 DEV_LOG · LOG_DIR 은 devlog.py 에 있다)
 PRELOAD = os.environ.get("PRELOAD", "1") == "1"              # True 면 서버를 켤 때 모델을 미리 불러온다 (첫 문장이 느려지지 않음). 모델 사용 모드일 때만 의미가 있다.
                                                              # 끄려면 PRELOAD=0 (그러면 첫 요청 때 불러오고, 화면에 '불러오는 중'이 나온다)
 
@@ -167,15 +167,8 @@ async def lifespan(app):
 # 요청 처리 (FastAPI 없이도 부를 수 있는 일반 함수)
 # =====================================================================
 def dev_log(label: str, data: Any) -> None:
-    """개발용 로그를 파일에 한 줄(JSON)씩 적는다. 로그를 못 써도 서비스는 계속되어야 하므로 오류는 삼킨다."""
-    if not DEV_LOG:
-        return
-    try:
-        os.makedirs(os.path.join(HERE, "logs"), exist_ok=True)
-        with open(os.path.join(HERE, "logs", time.strftime("dev_%Y%m%d.log")), "a", encoding="utf-8") as f:
-            f.write(json.dumps({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "label": label, "data": data}, ensure_ascii=False, default=str) + "\n")
-    except OSError:
-        pass
+    """검사 · 교정 · 표현 추천의 요청과 결과를 logs/writing_날짜.log 에 적는다 (아이가 쓴 문장이 들어간다). 다른 로그는 devlog.py 참고."""
+    devlog.write("writing", label, data)
 
 
 def handle_validate(payload: dict) -> dict:
@@ -211,6 +204,10 @@ def iter_correction(original_sentence: str) -> Iterator[Dict[str, Any]]:
     wait = DEMO_DELAY if mode.startswith("임시") else 0.0
     state: Dict[str, Any] = {"original_sentence": original_sentence}
     loaders = model_loaders(n)
+    began, timing = time.perf_counter(), {}                  # 단계별 걸린 시간(ms): 끝나면 logs/model_날짜.log 에 적는다
+
+    def spent(key, since):
+        timing[key] = round(timing.get(key, 0) + (time.perf_counter() - since) * 1000, 1)
 
     def stage(name):
         return {"type": "stage", "stage": name, "label": STAGE_LABELS[name]}
@@ -219,13 +216,17 @@ def iter_correction(original_sentence: str) -> Iterator[Dict[str, Any]]:
         info = loaders.get(name)
         if info and not info[1]():
             yield {"type": "loading", "stage": name, "model": info[0], "label": f"{info[0]} 불러오는 중이에요"}
+            t0 = time.perf_counter()
             info[2]()                                        # 처음이면 내려받기 때문에 몇 분 걸릴 수 있다
+            spent("load:" + name, t0)
             yield stage(name)                                # 다 불러왔으니 원래 단계 안내로 되돌린다
 
     def step(name):                                          # 노드를 부르고, 새로 나온 키만 update 로 내준다
         if wait:                                             # (임시 모드 시험용) 안내 문구가 보이도록 일하기 전에 잠깐 기다린다
             time.sleep(wait)
+        t0 = time.perf_counter()
         out = n[name](state)
+        spent(name, t0)
         state.update(out)
         return {"type": "update", "data": out}
 
@@ -243,11 +244,15 @@ def iter_correction(original_sentence: str) -> Iterator[Dict[str, Any]]:
                    "evidence_docs": [state["evidence_docs"][i]]}
             if wait:
                 time.sleep(wait)
+            t0 = time.perf_counter()
             exps += n["explain"](sub)["explanations"]
+            spent("explain", t0)
             state["explanations"] = list(exps)
             yield {"type": "update", "data": {"explanations": list(exps)}}
     # 결과 묶기: build_response 는 유효성 검사 결과도 읽으므로, '통과한 문장'이라는 사실만 채워 준다
     response = n["build_response"]({**state, "is_valid": True, "line_skipped": False})["response"]
+    devlog.write("model", "correct", {"mode": mode, "chars": len(original_sentence), "changes": len(state.get("difference") or []),
+                                      "stages_ms": timing, "total_ms": round((time.perf_counter() - began) * 1000, 1)})
     yield {"type": "done", "correction": response["correction"], "mode": mode}
 
 
@@ -263,6 +268,7 @@ def stream_correction(payload: dict):
             yield json.dumps(ev, ensure_ascii=False) + "\n"
     except Exception as e:                                   # 모델 오류, 벡터 DB 오류 등
         dev_log("correct_error", {"original_sentence": payload.get("original_sentence", ""), "error": str(e)})
+        devlog.error("correct", e, {"chars": len(payload.get("original_sentence", "") or "")})
         yield json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False) + "\n"
 
 
