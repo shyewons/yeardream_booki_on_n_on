@@ -109,13 +109,41 @@ function SentenceCard({ sentence: s, index, total, state, writer }) {
                     <button type="button" className="btn-sm" disabled={busy} title={busy ? '교정이 끝난 뒤에 고칠 수 있어요' : ''}
                                     onClick={() => writer.startEdit(s.id)}>다시쓰기</button>
                 )}
+                {/* 지우기: 저장이 끝난 줄만. 다시쓰기 중인 줄 · 교정 중 · 다른 줄을 지우는 중에는 잠긴다 (writer.js 의 canDelete) */}
+                {state.dbMode && s.original && (
+                    <button type="button" className="btn-sm del" disabled={!s.deletable || state.confirmDeleteId !== null}
+                                    aria-label={`${index + 1}번째 줄 지우기`} onClick={() => writer.askDelete(s.id)}>
+                        {state.deletingId === s.id ? '지우는 중…' : '지우기'}
+                    </button>
+                )}
             </div>
+            {state.confirmDeleteId === s.id && <DeleteConfirm writer={writer} />}
             {s.original && <p className="text">{s.revised || s.original}</p>}
             {s.original && s.revised && s.revised !== s.original && <p className="orig">내가 쓴 문장: {s.original}</p>}
             {s.work && <WorkBlock work={s.work} />}
             {s.original && !s.work && <FixBlock sentence={s} writer={writer} />}
             {s.expression_choice && s.expression_choice.picked && <p className="mode">내가 고른 표현이에요.</p>}
         </li>
+    )
+}
+
+// 문장 지우기 확인 (브라우저 창 대신 그 줄 안에서 묻는다). 처음 선택은 '취소', Esc 를 눌러도 취소된다.
+function DeleteConfirm({ writer }) {
+    const cancelRef = useRef(null)
+    useEffect(() => {
+        if (cancelRef.current) cancelRef.current.focus()
+        const onKey = (e) => { if (e.key === 'Escape') writer.cancelDelete() }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [writer])
+    return (
+        <div className="confirm" role="alertdialog" aria-label="문장 지우기 확인">
+            <p className="ask">이 문장을 지울까요?</p>
+            <div className="row">
+                <button type="button" className="btn-sm del yes" onClick={writer.confirmDelete}>지우기</button>{' '}
+                <button type="button" className="btn-sm" ref={cancelRef} onClick={writer.cancelDelete}>취소</button>
+            </div>
+        </div>
     )
 }
 
@@ -288,6 +316,18 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
                         {state.save.retry && <button type="button" className="btn-sm" onClick={writer.retrySaves}>다시 저장하기</button>}
                     </p>
                 )
+            )}
+
+            {/* 문장을 지운 뒤 잠깐 보이는 되돌리기 (writer.js 의 UNDO_SECONDS) */}
+            {state.undo && (
+                <p id="undo-bar" className={state.undo.error ? 'err' : ''} role="status">
+                    <span>
+                        {state.undo.error ? '되살리지 못했어요. ' : `${state.undo.seq}번째 문장을 지웠어요. `}
+                    </span>
+                    <button type="button" className="btn-sm" disabled={state.undo.busy || state.busy} onClick={writer.undoDelete}>
+                        {state.undo.busy ? '되살리는 중…' : state.undo.error ? '다시 시도' : '되돌리기'}
+                    </button>
+                </p>
             )}
 
             {state.view === 'write' ? (

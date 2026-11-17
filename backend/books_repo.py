@@ -154,7 +154,7 @@ def create_book(user_id, kind, title):
 
 # 목록에 보이는 글: 문장이 하나라도 있거나, 쓰다 멈춘 문장(draft_text)이 있는 글.
 # ('오늘 일기 쓰기'를 눌러 글만 만들어 두고 아무것도 안 쓴 글이 목록에 "문장 0개"로 쌓이지 않게)
-_VISIBLE = "(EXISTS (SELECT 1 FROM sentences s2 WHERE s2.entry_id = e.id) OR e.draft_text IS NOT NULL)"
+_VISIBLE = "(EXISTS (SELECT 1 FROM sentences s2 WHERE s2.entry_id = e.id AND s2.seq IS NOT NULL) OR e.draft_text IS NOT NULL)"
 
 
 # ── 책 안의 글 목록 (일기: 날짜별, 최신 날짜부터 / 동화: 이야기 한 편) ─────────────
@@ -167,7 +167,7 @@ def list_entries(user_id, book_id, page=1, size=None):
     total = db.query(f"SELECT COUNT(*) AS n FROM entries e WHERE e.book_id = :bid AND {_VISIBLE}", {"bid": book_id})[0]["n"]
     rows = db.query(
         """SELECT e.id, e.diary_date, e.status, e.saved_at, e.edited_at,
-                  (SELECT COUNT(*) FROM sentences s WHERE s.entry_id = e.id) AS sentence_count
+                  (SELECT COUNT(*) FROM sentences s WHERE s.entry_id = e.id AND s.seq IS NOT NULL) AS sentence_count
              FROM entries e
             WHERE e.book_id = :bid AND """ + _VISIBLE + """
             ORDER BY e.diary_date DESC, e.id DESC
@@ -208,7 +208,7 @@ def get_entry(user_id, entry_id):
         """SELECT id, seq, original, revised, attempt_count, invalid_reasons,
                   has_correction, correction_mode, expression_choice, written_at
              FROM sentences
-            WHERE entry_id = :eid
+            WHERE entry_id = :eid AND seq IS NOT NULL
             ORDER BY seq""",
         {"eid": entry_id},
     )
@@ -218,7 +218,7 @@ def get_entry(user_id, entry_id):
                   c.evidence_score, c.query_text, c.error_type, c.evidence_part, c.evidences
              FROM corrections c
              JOIN sentences s ON s.id = c.sentence_id
-            WHERE s.entry_id = :eid
+            WHERE s.entry_id = :eid AND s.seq IS NOT NULL
             ORDER BY c.sentence_id, c.idx""",
         {"eid": entry_id},
     )
@@ -294,6 +294,13 @@ def get_entry_by_date(user_id, book_id, date_iso):
 #  쓰기 (글 열기/만들기 · 문장 저장 · 이야기 저장하기)
 #  규칙: 하루 = 글 하나 / 문장을 추가·수정하면 상태는 writing, '이야기 저장하기'를 누르면 done
 #        edited_at 은 문장 내용이 바뀔 때만, saved_at 은 저장하기를 누를 때만 갱신 / 시각은 앱이 한국 시간으로 넣는다
+#
+#  문장 기록은 지우지 않는다 (통계 · 보호자 확인용).
+#    다시쓰기 · 지우기 · 동화 표현 선택으로 바뀐 줄은 DB 에서 지우지 않고 '화면에서 빠진 줄'로 남긴다.
+#      보이는 줄:  seq 에 순서가 있고 ended_at, end_reason 이 비어 있다
+#      빠진 줄:    seq 가 NULL, ended_at(빠진 시각), end_reason(edit / delete / expr). 교정 항목도 그 줄에 그대로 붙어 있다
+#    그래서 화면용 조회는 모두 'seq IS NOT NULL' 로 보이는 줄만 읽는다. 순서를 밀고 당기는 쿼리(seq >= x, seq < 0)는
+#    NULL 을 저절로 건너뛰므로 따로 조건이 필요 없다. 통계를 낼 때는 빠진 줄까지 함께 읽으면 된다.
 # ═════════════════════════════════════════════════════════════════════════
 MAX_SENTENCES = 200     # 글 하나에 쓸 수 있는 문장 수 (넘으면 새 문장을 받지 않는다. 고치기 · 순서 바꾸기는 계속 된다)
 MAX_TEXT = 500          # 문장 한 줄 최대 글자 수
@@ -303,6 +310,11 @@ MAX_CORRECTIONS = 30    # 한 문장의 교정 항목 최대 개수
 MAX_EXPLANATION = 2000  # 교정 설명문 최대 글자 수 (넘는 부분은 자른다)
 MAX_CHOICE_LEN = 4000   # 표현 선택 기록(JSON으로 바꾼 길이) 최대 글자 수
 MAX_EVIDENCES = 5       # 교정 항목 하나의 근거 조항 최대 개수 (파이프라인은 최대 3개를 준다)
+END_REASONS = ("edit", "delete", "expr")   # 화면에서 빠진 이유: 다시쓰기 / 지우기 / 동화 표현 선택
+
+
+class Stale(Exception):
+    """화면이 알고 있는 글과 DB 의 글이 달라졌을 때 (다른 탭 · 기기에서 순서를 바꾼 경우 등). 409 로 알린다."""
 
 
 def _own_entry(tx, user_id, entry_id):
@@ -432,7 +444,7 @@ def move_sentence(user_id, entry_id, seq, to):
     def work(tx):
         if not _own_entry(tx, user_id, entry_id):
             return None
-        ids = [r["id"] for r in tx.query("SELECT id FROM sentences WHERE entry_id = :eid ORDER BY seq", {"eid": entry_id})]
+        ids = [r["id"] for r in tx.query("SELECT id FROM sentences WHERE entry_id = :eid AND seq IS NOT NULL ORDER BY seq", {"eid": entry_id})]
         if not (1 <= seq <= len(ids) and 1 <= to <= len(ids)):
             raise BadRequest("문장 순서가 맞지 않아요.")
         now = _now_str()
@@ -457,7 +469,9 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
     """문장 하나를 저장한다 (임시저장). 같은 순서(seq)가 이미 있으면 덮어쓰고, 끝 다음 순서면 새로 붙인다.
     insert=True 면 덮어쓰지 않고 그 자리에 끼워 넣는다 (같은 문장이 이미 그 자리에 있으면 다시 넣지 않는다: 재전송 대비).
     글이 없거나 내 글이 아니면 None. 내용(원문·최종문장)이 그대로면 아무것도 바꾸지 않는다(같은 요청을 다시 보내도 안전).
-    data: original, revised, attempt_count, invalid_reasons[], has_correction, correction_mode, expression_choice, corrections[]"""
+    이미 있는 줄의 내용이 바뀌면 덮어쓰지 않고, 그 줄은 '빠진 줄'로 남기고 같은 순서에 새 줄을 넣는다 (기록 보존).
+    data: original, revised, attempt_count, invalid_reasons[], has_correction, correction_mode, expression_choice, corrections[],
+          reason (바뀐 이유: edit 다시쓰기 / expr 동화 표현 선택. 없으면 원문이 바뀌었는지로 정한다)"""
     if not isinstance(data, dict):
         raise BadRequest("문장 내용이 필요해요.")
     if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:
@@ -477,11 +491,13 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
     if choice is not None and len(choice) > MAX_CHOICE_LEN:
         raise BadRequest("표현 선택 기록이 너무 길어요.")
     has_corr = 1 if data.get("has_correction") else 0
+    reason = data.get("reason") if data.get("reason") in ("edit", "expr") else None
 
     def work(tx):
         if not _own_entry(tx, user_id, entry_id):
             return None
-        rows = tx.query("SELECT id, seq, original, revised FROM sentences WHERE entry_id = :eid ORDER BY seq", {"eid": entry_id})
+        rows = tx.query("SELECT id, seq, original, revised FROM sentences WHERE entry_id = :eid AND seq IS NOT NULL ORDER BY seq",
+                        {"eid": entry_id})
         if seq > (rows[-1]["seq"] if rows else 0) + 1:
             raise BadRequest("앞의 문장이 아직 저장되지 않았어요.")
         cur = next((r for r in rows if r["seq"] == seq), None)
@@ -494,21 +510,23 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
             cur = None
         now = _now_str()
         changed = cur is None or cur["original"] != original or cur["revised"] != revised
+        why = None                                   # 이미 있던 줄이 바뀐 이유 (기록용)
         p = {"o": original, "r": revised, "n": attempt, "ir": json.dumps(reasons, ensure_ascii=False),
              "hc": has_corr, "m": mode, "ec": choice, "now": now}
+        insert_row = """INSERT INTO sentences (entry_id, seq, original, revised, attempt_count, invalid_reasons, has_correction,
+                                               correction_mode, expression_choice, written_at)
+                        VALUES (:eid, :seq, :o, :r, :n, :ir, :hc, :m, :ec, :now)"""
         if cur is None:
-            sid = tx.insert(
-                """INSERT INTO sentences (entry_id, seq, original, revised, attempt_count, invalid_reasons, has_correction,
-                                          correction_mode, expression_choice, written_at)
-                   VALUES (:eid, :seq, :o, :r, :n, :ir, :hc, :m, :ec, :now)""", {**p, "eid": entry_id, "seq": seq})
+            sid = tx.insert(insert_row, {**p, "eid": entry_id, "seq": seq})
         else:
             sid = cur["id"]
             if changed:
-                tx.execute(
-                    """UPDATE sentences SET original = :o, revised = :r, attempt_count = :n, invalid_reasons = :ir,
-                              has_correction = :hc, correction_mode = :m, expression_choice = :ec, written_at = :now
-                        WHERE id = :sid""", {**p, "sid": sid})
-                tx.execute("DELETE FROM corrections WHERE sentence_id = :sid", {"sid": sid})
+                # 덮어쓰지 않는다: 옛 줄은 '빠진 줄'로 남기고(교정 항목도 그대로) 같은 순서에 새 줄을 넣는다.
+                # 이유를 화면이 알려 주지 않으면 원문이 바뀌었으면 다시쓰기, 최종 문장만 바뀌었으면 표현 선택으로 본다.
+                why = reason or ("edit" if cur["original"] != original else "expr")
+                tx.execute("UPDATE sentences SET seq = NULL, ended_at = :now, end_reason = :why WHERE id = :sid",
+                           {"now": now, "why": why, "sid": sid})
+                sid = tx.insert(insert_row, {**p, "eid": entry_id, "seq": seq})
             elif choice is not None:                 # 문장은 그대로인데 표현 선택 기록만 온 경우 (예: '원래 문장 그대로'): 기록만 남긴다
                 tx.execute("UPDATE sentences SET expression_choice = :ec WHERE id = :sid", {"ec": choice, "sid": sid})
         if changed:
@@ -517,7 +535,94 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
                                  draft_text = NULL, draft_saved_at = NULL, draft_mode = NULL, draft_seq = NULL
                            WHERE id = :eid""", {"now": now, "eid": entry_id})
         entry = tx.query("SELECT id, status, edited_at, saved_at FROM entries WHERE id = :eid", {"eid": entry_id})[0]
-        return {"sentence_id": sid, "seq": seq, "changed": changed, "saved_at": now, "entry": entry}
+        return {"sentence_id": sid, "seq": seq, "changed": changed, "reason": why, "saved_at": now, "entry": entry}
+
+    return db.run_in_transaction(work)
+
+
+# ── 문장 지우기 · 되살리기 ───────────────────────────────────────────────────
+# 지운 줄도 DB 에서 지우지 않는다: seq 를 비우고 end_reason = 'delete' 로 남긴다 (위 '문장 기록은 지우지 않는다' 참고).
+# 쓰던 문장 임시저장(draft_mode, draft_seq)이 가리키는 자리도 같은 트랜잭션에서 맞춘다.
+
+def _seq_arg(v, name="문장 순서"):
+    if not isinstance(v, int) or isinstance(v, bool) or v < 1:
+        raise BadRequest(f"{name}가 맞지 않아요.")
+    return v
+
+
+def delete_sentence(user_id, entry_id, seq, sentence_id):
+    """seq 번째 문장을 화면에서 뺀다. sentence_id 가 그 자리의 문장과 다르면(다른 곳에서 글이 바뀜) Stale.
+    뒤 문장은 한 칸씩 당긴다. 글이 없거나 내 글이 아니면 None. 글은 '쓰는 중'으로 돌아가고 수정 시각이 갱신된다."""
+    seq = _seq_arg(seq)
+    sentence_id = _seq_arg(sentence_id, "문장 번호")
+
+    def work(tx):
+        if not _own_entry(tx, user_id, entry_id):
+            return None
+        cur = tx.query("SELECT id FROM sentences WHERE entry_id = :eid AND seq = :seq", {"eid": entry_id, "seq": seq})
+        if not cur or cur[0]["id"] != sentence_id:
+            raise Stale("글이 다른 곳에서 바뀌었어요. 글을 다시 열어 주세요.")
+        now = _now_str()
+        tx.execute("UPDATE sentences SET seq = NULL, ended_at = :now, end_reason = 'delete' WHERE id = :sid",
+                   {"now": now, "sid": sentence_id})
+        tx.execute("UPDATE sentences SET seq = -seq WHERE entry_id = :eid AND seq > :seq", {"eid": entry_id, "seq": seq})  # 뒤 문장들을 비켜 두고
+        tx.execute("UPDATE sentences SET seq = -seq - 1 WHERE entry_id = :eid AND seq < 0", {"eid": entry_id})             # 한 칸씩 앞 번호로
+        n = tx.query("SELECT COUNT(*) AS n FROM sentences WHERE entry_id = :eid AND seq IS NOT NULL", {"eid": entry_id})[0]["n"]
+
+        # 쓰던 문장이 가리키던 자리 맞추기
+        d = tx.query("SELECT draft_mode, draft_seq FROM entries WHERE id = :eid", {"eid": entry_id})[0]
+        mode, dseq = d["draft_mode"], d["draft_seq"]
+        if mode in ("edit", "insert") and dseq:
+            if dseq > seq:
+                dseq -= 1                            # 앞줄이 빠졌으니 한 칸 당긴다
+            elif dseq == seq and mode == "edit":
+                mode, dseq = "new", None             # 고치던 줄이 빠졌다 (화면은 막지만 다른 탭에서 지운 경우) → 새 문장으로
+            if mode == "insert" and dseq > n:
+                mode, dseq = "new", None             # 넣을 자리가 끝을 넘었다 → 맨 뒤에 쓰는 새 문장
+        tx.execute("""UPDATE entries SET status = 'writing', edited_at = :now, draft_mode = :m, draft_seq = :s
+                       WHERE id = :eid""", {"now": now, "m": mode, "s": dseq, "eid": entry_id})
+        entry = tx.query("SELECT id, status, edited_at, saved_at FROM entries WHERE id = :eid", {"eid": entry_id})[0]
+        return {"deleted": True, "seq": seq, "sentence_id": sentence_id, "sentence_count": n, "saved_at": now, "entry": entry}
+
+    return db.run_in_transaction(work)
+
+
+def restore_sentence(user_id, entry_id, sentence_id, seq):
+    """지운 문장을 seq 번째 자리에 되살린다 ('되돌리기'). 그 자리부터의 문장은 한 칸씩 민다.
+    seq 가 끝을 넘으면 맨 뒤에 붙인다. 이미 보이는 줄이면 아무것도 바꾸지 않는다 (같은 요청을 다시 보내도 안전).
+    글이 없거나 내 글이 아니면 None."""
+    sentence_id = _seq_arg(sentence_id, "문장 번호")
+    seq = _opt_int(seq, 0)
+
+    def work(tx):
+        if not _own_entry(tx, user_id, entry_id):
+            return None
+        row = tx.query("SELECT id, seq, end_reason FROM sentences WHERE id = :sid AND entry_id = :eid",
+                       {"sid": sentence_id, "eid": entry_id})
+        if not row:
+            raise BadRequest("되살릴 문장을 찾을 수 없어요.")
+        row = row[0]
+        entry_now = lambda: tx.query("SELECT id, status, edited_at, saved_at FROM entries WHERE id = :eid", {"eid": entry_id})[0]
+        if row["seq"] is not None:                   # 이미 되살아나 있다
+            return {"restored": False, "seq": row["seq"], "sentence_id": sentence_id, "saved_at": None, "entry": entry_now()}
+        if row["end_reason"] != "delete":
+            raise BadRequest("지운 문장만 되살릴 수 있어요.")
+        n = tx.query("SELECT COUNT(*) AS n FROM sentences WHERE entry_id = :eid AND seq IS NOT NULL", {"eid": entry_id})[0]["n"]
+        if n >= MAX_SENTENCES:
+            raise BadRequest(f"한 글에는 문장을 {MAX_SENTENCES}개까지 쓸 수 있어요.")
+        pos = seq if 1 <= seq <= n else n + 1
+        now = _now_str()
+        tx.execute("UPDATE sentences SET seq = -seq WHERE entry_id = :eid AND seq >= :pos", {"eid": entry_id, "pos": pos})  # 뒤 문장들을 비켜 두고
+        tx.execute("UPDATE sentences SET seq = -seq + 1 WHERE entry_id = :eid AND seq < 0", {"eid": entry_id})              # 한 칸씩 뒤 번호로
+        tx.execute("UPDATE sentences SET seq = :pos, ended_at = NULL, end_reason = NULL WHERE id = :sid",
+                   {"pos": pos, "sid": sentence_id})
+        d = tx.query("SELECT draft_mode, draft_seq FROM entries WHERE id = :eid", {"eid": entry_id})[0]
+        dseq = d["draft_seq"]
+        if d["draft_mode"] in ("edit", "insert") and dseq and dseq >= pos:
+            dseq += 1                                # 쓰던 자리 앞에 한 줄 생겼다 → 한 칸 민다
+        tx.execute("UPDATE entries SET status = 'writing', edited_at = :now, draft_seq = :s WHERE id = :eid",
+                   {"now": now, "s": dseq, "eid": entry_id})
+        return {"restored": True, "seq": pos, "sentence_id": sentence_id, "saved_at": now, "entry": entry_now()}
 
     return db.run_in_transaction(work)
 
@@ -564,7 +669,7 @@ def complete_entry(user_id, entry_id):
     def work(tx):
         if not _own_entry(tx, user_id, entry_id):
             return None
-        n = tx.query("SELECT COUNT(*) AS n FROM sentences WHERE entry_id = :eid", {"eid": entry_id})[0]["n"]
+        n = tx.query("SELECT COUNT(*) AS n FROM sentences WHERE entry_id = :eid AND seq IS NOT NULL", {"eid": entry_id})[0]["n"]
         if n == 0:
             raise BadRequest("문장을 하나 이상 써야 저장할 수 있어요.")
         tx.execute("""UPDATE entries SET status = 'done', saved_at = :now,

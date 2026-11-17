@@ -10,12 +10,18 @@
 //     다시 들어오면 boot() 가 입력칸에 되살린다 (다시쓰기 · 위에 넣기 중이었다면 그 상태까지).
 //     문장이 저장되면 서버가 임시저장을 비운다.
 //
+//   문장 지우기: 줄마다 '지우기' → 화면 안에서 한 번 더 묻고 → 서버에서 뺀다 → UNDO_SECONDS 동안 '되돌리기'.
+//     서버는 지운 줄을 DB 에서 지우지 않고 '빠진 줄'로 남긴다 (통계 · 보호자 확인용). 되돌리기는 그 줄을 다시 보이게 한다.
+//     다시쓰기 · 표현 선택으로 문장이 바뀔 때도 서버는 옛 줄을 남긴다. 그래서 저장할 때 바뀐 이유(reason)를 같이 보낸다.
+//     s.sid 는 서버의 문장 번호다 (지울 때 엉뚱한 줄을 지우지 않게 같이 보낸다). 다시쓰기 뒤에는 새 줄이라 번호가 바뀐다.
+//
 // 쓰는 법:  const w = createWriter({ book, date, practice, onSaved, onAuthError, onDateChange })
 //          w.subscribe(fn) / w.getSnapshot()  → 화면이 상태를 읽는다 (useSyncExternalStore)
 //          w.boot()                          → 화면이 열릴 때 한 번
 import { api, apiStream, track as trackEvent } from './api.js'
 
 const DRAFT_DELAY_MS = 2000 // 입력을 멈추고 이만큼(1000 = 1초) 지나면 쓰던 문장을 임시저장한다
+const UNDO_SECONDS = 5      // 문장을 지운 뒤 '되돌리기'를 보여 주는 시간 (초)
 
 const track = (event, data) => trackEvent(event, data, 'write')
 const short = (e) => String((e && e.message) || e).slice(0, 200)
@@ -51,6 +57,9 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         storyError: '',
         focusTick: 0,             // 바뀔 때마다 화면이 입력칸에 커서를 둔다
         scrollTo: null,           // { id, tick } 그 줄이 보이게 스크롤
+        confirmDeleteId: null,    // '정말 지울까요?'를 묻고 있는 줄의 id
+        deletingId: null,         // 지우는 중인 줄의 id (서버 응답을 기다리는 중)
+        undo: null,               // 되돌리기 { seq, text, busy, error } (UNDO_SECONDS 동안만)
     }
 
     // ── 화면에 보이지 않는 상태 ──
@@ -70,10 +79,17 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     let tick = 0
     let draftSent = ''          // 서버에 임시저장되어 있는 내용 (draftKey 모양). 비어 있으면 임시저장 없음
     let draftTimer = null       // 입력이 멈추기를 기다리는 타이머
+    let undoItem = null         // 되돌리기에 쓸 지운 줄 { s, seq } (화면에 있던 그 줄 그대로)
+    let undoTimer = null
 
     function emit() {
         if (disposed) return
-        snapshot = { ...st, sentences: st.sentences.map((s) => ({ ...s, work: s.work ? { ...s.work } : undefined })), save: { ...st.save } }
+        snapshot = {
+            ...st,
+            // deletable: 이 줄의 '지우기'를 누를 수 있는지 (화면은 이 값만 보고 버튼을 켜고 끈다)
+            sentences: st.sentences.map((s) => ({ ...s, work: s.work ? { ...s.work } : undefined, deletable: canDelete(s) })),
+            save: { ...st.save },
+        }
         listeners.forEach((fn) => fn())
     }
     const focus = () => { st.focusTick = (tick += 1) }
@@ -101,6 +117,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         original: s.original, revised: s.revised || s.original, attempt_count: (s.retry_count || 0) + 1,
         invalid_reasons: s.reasons || [], has_correction: !!s.was_corrected, correction_mode: s.mode || null,
         corrections: s.corrections || [], expression_choice: s.expression_choice || null,
+        reason: s.reason || null,   // 이미 있던 줄이 바뀐 이유: edit 다시쓰기 / expr 표현 선택 (서버가 옛 줄을 기록으로 남긴다)
     })
 
     async function saveOne(s) {
@@ -114,6 +131,8 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
                                                       : await api(base, { method: 'PUT', body: payloadOf(s) })
             s.saveState = 'saved'
             s.inserted = false
+            s.reason = null
+            if (r.sentence_id) s.sid = r.sentence_id        // 내용이 바뀌면 서버는 새 줄을 만든다 → 번호가 바뀐다
             if (r.changed) draftSent = ''                   // 문장이 저장되면 서버가 임시저장을 비운다
             st.entry.status = r.entry.status
             lastSaved = String(r.saved_at || '').slice(11, 16)
@@ -196,7 +215,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     }
 
     const fromServer = (x) => ({
-        id: nextId++, original: x.original, revised: x.revised, retry_count: Math.max(0, (x.attempt_count || 1) - 1),
+        id: nextId++, sid: x.id, original: x.original, revised: x.revised, retry_count: Math.max(0, (x.attempt_count || 1) - 1),
         was_corrected: !!x.has_correction, corrections: x.corrections || [], compliment: null, mode: x.correction_mode,
         reasons: x.invalid_reasons || [], expression_choice: x.expression_choice || null, saveState: 'saved',
     })
@@ -318,7 +337,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
 
     // ── 다시쓰기 · 끼워 넣기 · 순서 바꾸기 ──
     function startEdit(id) {
-        if (st.busy) return
+        if (st.busy || st.deletingId !== null) return
         st.insertAt = null
         track('edit_start', { seq: st.sentences.findIndex((x) => x.id === id) + 1 })
         st.editingId = id
@@ -340,7 +359,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     }
 
     function startInsert(id) {
-        if (st.busy) return
+        if (st.busy || st.deletingId !== null) return
         const i = st.sentences.findIndex((x) => x.id === id)
         if (i < 0) return
         track('insert_start', { at: i + 1 })
@@ -353,7 +372,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     }
 
     function moveSentence(id, dir) {
-        if (st.busy) return
+        if (st.busy || st.deletingId !== null) return
         const i = st.sentences.findIndex((x) => x.id === id)
         const j = i + dir
         if (i < 0 || j < 0 || j >= st.sentences.length) return
@@ -473,7 +492,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         track('expr_pick', { picked: picked ? Number(e.value) : null, options: e.options.length })
         if (s) {
             s.expression_choice = { base: e.base, options: e.options, picked }   // 무엇을 보여 줬고 무엇을 골랐는지 (DB의 expression_choice)
-            if (picked) s.revised = picked
+            if (picked) { s.revised = picked; s.reason = 'expr' }   // 표현을 바꾸면 서버가 바뀌기 전 줄을 기록으로 남긴다
             s.saveState = 'pending'
             if (dbMode) queueSave(s)
         }
@@ -498,6 +517,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         if (r.route === 'correction') {
             carried = []
             let s = st.sentences.find((x) => x.id === st.editingId)
+            if (s) s.reason = 'edit'                        // 다시쓰기: 서버가 옛 줄을 기록으로 남긴다
             if (!s) {                                       // 새 줄: 맨 뒤에 붙이거나, 고른 자리에 끼워 넣는다
                 s = { id: nextId++ }
                 if (st.insertAt !== null && st.insertAt < st.sentences.length) { s.inserted = true; st.sentences.splice(st.insertAt, 0, s) }
@@ -572,7 +592,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     }
 
     function submit() {
-        if (st.busy) return
+        if (st.busy || st.deletingId !== null) return
         carried = []
         syncDraft(true, draftNow())                       // 검사 · 교정에 들어가기 전에 쓴 문장을 먼저 임시저장한다
         run([])
@@ -587,6 +607,108 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             carried = carried.concat(chosen)
             run(carried)
         } else emit()
+    }
+
+    // ── 문장 지우기 · 되돌리기 ──
+    // 지울 수 있는 줄: 저장이 끝난 줄. 다시쓰기 중인 줄, 검사 · 교정 · 표현 선택 중, 다른 줄을 지우는 중에는 못 지운다.
+    // 저장이 안 된 줄이 하나라도 있으면 막는다 (지우면 뒤 줄의 순서가 바뀌는데, 저장 안 된 줄은 순서로 저장되기 때문).
+    function canDelete(s) {
+        return dbMode && !!st.entry && !st.busy && !st.expr && st.view === 'write' && st.deletingId === null
+            && !!s && !!s.sid && s.saveState === 'saved' && !s.work && s.id !== st.editingId
+            && !st.sentences.some((x) => x.original && x.saveState !== 'saved')
+    }
+
+    function askDelete(id) {
+        const s = st.sentences.find((x) => x.id === id)
+        if (!canDelete(s)) return
+        track('delete_ask', { seq: st.sentences.indexOf(s) + 1 })
+        st.confirmDeleteId = id
+        emit()
+    }
+
+    function cancelDelete() {
+        if (st.confirmDeleteId === null) return
+        track('delete_cancel')
+        st.confirmDeleteId = null
+        focus(); emit()
+    }
+
+    function clearUndo() {
+        clearTimeout(undoTimer)
+        undoTimer = null
+        undoItem = null
+        st.undo = null
+    }
+
+    function confirmDelete() {
+        const s = st.sentences.find((x) => x.id === st.confirmDeleteId)
+        st.confirmDeleteId = null
+        if (!canDelete(s)) { emit(); return }
+        const seq = st.sentences.indexOf(s) + 1
+        st.deletingId = s.id
+        clearNotice()
+        setSaveBar('', '지우는 중…')
+        emit()
+        saveChain = saveChain.then(async () => {
+            try {
+                const r = await api(`/api/entries/${st.entry.id}/sentences/${seq}?sentence_id=${s.sid}`, { method: 'DELETE' })
+                const i = st.sentences.indexOf(s)
+                if (i >= 0) {
+                    st.sentences.splice(i, 1)
+                    // 위에 넣기 중이었다면 넣을 자리를 맞춘다 (서버도 쓰던 문장의 자리를 같은 규칙으로 맞춘다)
+                    if (st.insertAt !== null && st.insertAt > i) st.insertAt -= 1
+                    if (st.insertAt !== null && st.insertAt >= st.sentences.length) st.insertAt = null
+                }
+                st.entry.status = r.entry.status
+                lastSaved = String(r.saved_at || '').slice(11, 16)
+                updateSaveBar()
+                track('delete_done', { seq })
+                clearUndo()                                 // 되돌리기는 마지막에 지운 한 줄만
+                undoItem = { s, seq }
+                st.undo = { seq, text: s.revised || s.original, busy: false, error: false }
+                undoTimer = setTimeout(() => { if (st.undo && !st.undo.busy) { clearUndo(); emit() } }, UNDO_SECONDS * 1000)
+            } catch (e) {
+                if (!authFailed(e)) {
+                    setSaveBar('err', e.status === 409 ? e.message : `문장을 지우지 못했어요. 다시 해 주세요. (${short(e)})`)
+                    track('delete_fail', { seq, status: e.status || 0 })
+                }
+            }
+            st.deletingId = null
+            emit()
+        })
+        syncDraft(true)                                   // 쓰던 문장의 자리가 바뀌었을 수 있다 → 서버와 맞춰 둔다
+    }
+
+    function undoDelete() {
+        const item = undoItem
+        if (!item || !st.undo || st.undo.busy || st.busy || st.deletingId !== null) return
+        st.undo = { ...st.undo, busy: true, error: false }
+        emit()
+        saveChain = saveChain.then(async () => {
+            try {
+                const r = await api(`/api/entries/${st.entry.id}/restore`, { method: 'POST', body: { sentence_id: item.s.sid, seq: item.seq } })
+                if (undoItem === item) {
+                    const at = Math.min(Math.max(1, r.seq), st.sentences.length + 1) - 1
+                    if (!st.sentences.includes(item.s)) st.sentences.splice(at, 0, item.s)
+                    if (st.insertAt !== null && st.insertAt >= at) st.insertAt += 1
+                    st.entry.status = r.entry.status
+                    if (r.saved_at) lastSaved = String(r.saved_at).slice(11, 16)
+                    updateSaveBar()
+                    track('delete_undo', { seq: r.seq })
+                    clearUndo()
+                    scrollTo(item.s.id)
+                }
+            } catch (e) {
+                if (!authFailed(e) && undoItem === item) {
+                    st.undo = { ...st.undo, busy: false, error: true }
+                    clearTimeout(undoTimer)                 // 실패하면 '다시 시도'를 UNDO_SECONDS 동안 더 보여 준다
+                    undoTimer = setTimeout(() => { if (st.undo && !st.undo.busy) { clearUndo(); emit() } }, UNDO_SECONDS * 1000)
+                    track('delete_undo_fail', { status: e.status || 0 })
+                }
+            }
+            emit()
+        })
+        syncDraft(true)
     }
 
     // ── 전체 글 · 이야기 저장하기 ──
@@ -648,11 +770,13 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         getSnapshot: () => snapshot,
         dispose() {
             if (draftTimer) syncDraft(true)                 // 기다리던 임시저장이 있으면 나가기 전에 보낸다
+            clearTimeout(undoTimer)                         // 나가면 되돌리기는 사라진다
             disposed = true
             if (exprResolve) exprResolve()
         },
         boot, submit, choose, setBox(v) { st.box = v; emit(); syncDraft(false) },
         startEdit, cancelEdit, startInsert, moveSentence, retrySaves,
+        askDelete, cancelDelete, confirmDelete, undoDelete,
         openTopics, chooseTopic, pickExpr, confirmExpr, retryExpr, skipExpr,
         toggleFix(id, open) { const s = st.sentences.find((x) => x.id === id); if (s && !!s.openFix !== open) { s.openFix = open; emit() } },
         finish, backToWrite, restart, saveStory, unsavedWork,

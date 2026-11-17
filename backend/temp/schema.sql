@@ -63,7 +63,7 @@ CREATE TABLE entries (
 CREATE TABLE sentences (
   id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   entry_id         BIGINT UNSIGNED NOT NULL,
-  seq              INT NOT NULL COMMENT '순서',
+  seq              INT NULL COMMENT '순서 (다시쓰기 · 지우기 · 표현 선택으로 화면에서 빠진 줄은 NULL)',
   original         TEXT NOT NULL COMMENT '원문 (original_sentence)',
   revised          TEXT NOT NULL COMMENT '최종문장 (revised_sentence)',
   attempt_count    INT NOT NULL DEFAULT 1 COMMENT '입력횟수: 통과까지 시도한 횟수 (유효성 검사)',
@@ -72,8 +72,10 @@ CREATE TABLE sentences (
   correction_mode  VARCHAR(20) NULL COMMENT '교정방식 (mode)',
   expression_choice JSON NULL COMMENT '표현선택 (동화에서 고른 표현)',
   written_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '작성날짜',
+  ended_at         DATETIME NULL COMMENT '화면에서 빠진 시각 (다시쓰기 · 지우기 · 표현 선택으로 바뀐 때). 보이는 줄은 NULL',
+  end_reason       VARCHAR(10) NULL COMMENT '빠진 이유: edit 다시쓰기 / delete 지우기 / expr 동화 표현 선택',
   PRIMARY KEY (id),
-  UNIQUE KEY uq_sentences_order (entry_id, seq),
+  UNIQUE KEY uq_sentences_order (entry_id, seq),   -- 보이는 줄의 순서는 겹치지 않는다 (빠진 줄의 NULL 은 여러 개 가능)
   CONSTRAINT fk_sentences_entry FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='문장';
 
