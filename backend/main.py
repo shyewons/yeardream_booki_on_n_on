@@ -14,6 +14,7 @@
   /health                      상태 확인
   /api/users                   별명 만들기 · 토큰 확인 (users_api.py → users_repo.py). 사용자 구분은 헤더 X-User-Token (auth.py)
   /api/...                     책 · 글 목록과 저장 (books_api.py → books_repo.py → db.py). 토큰 주인의 책만 보인다
+  /api/dashboard               대시보드 메인: 이번 주 일기 작성 요일 · 내가 골라 쓴 표현 (dashboard_api.py → dashboard_repo.py)
   /question /topics /validate /correct /suggest      글쓰기: 질문 · 검사 · 교정 · 표현 추천 (writing_api.py)
   /log/ui                      화면 동작 기록 (devlog.py). 로그는 backend/logs/ 에 종류별로 쌓인다
   / , /books                   (임시) frontend/temp 의 시험용 화면. React 화면이 완성되면 proto_pages.py 와 아래 두 줄을 지운다
@@ -28,6 +29,7 @@ import db                                  # 가장 먼저: backend/.env 를 읽
 import auth
 from auth import UserTokenMiddleware
 from books_api import router as books_router
+from dashboard_api import router as dashboard_router
 from users_api import router as users_router
 import books_repo
 import devlog
@@ -69,6 +71,7 @@ def health():
 
 app.include_router(users_router)          # /api/users  (별명 만들기 · 토큰 확인)
 app.include_router(books_router)          # /api/...
+app.include_router(dashboard_router)      # /api/dashboard  (대시보드 메인)
 app.include_router(writing_router)        # /question /topics /validate /correct /suggest
 app.include_router(devlog.router)         # /log/ui
 

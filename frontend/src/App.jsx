@@ -4,6 +4,7 @@ import NicknamePage from "./NicknamePage.jsx";      // 별명설정 페이지
 import HomeListPage from "./HomeListPage.jsx";      // 목장(메인) 페이지
 import CreateBookPage from "./CreateBookPage.jsx";  // 새 책 만들기 페이지
 import PostListPage from "./PostListPage.jsx";      // 글 리스트 페이지
+import DashboardPage from "./DashboardPage.jsx";    // 대시보드 페이지
 
 
 export default function App() {
@@ -110,6 +111,9 @@ export default function App() {
                         alert(`${book.title}: 글쓰기 화면은 아직 연결 전이에요.`);
                     }}
 
+                    // 대시보드 버튼을 누르면 대시보드로 전환
+                    onOpenDashboard={() => setPage("dashboard")}
+
                     // 목장 조회 중 인증 오류가 나면 공통 함수 실행
                     onAuthError={handleAuthError}
                 />
@@ -126,6 +130,14 @@ export default function App() {
                     onCancel={() => setPage("home")}
                     
                     // 책 생성 중 인증 오류가 나면 별명 화면으로 전환
+                    onAuthError={handleAuthError}
+                />
+            )}
+
+            {/* 5. 대시보드 화면 */}
+            {page === "dashboard" && (
+                <DashboardPage
+                    onBack={() => setPage("home")}
                     onAuthError={handleAuthError}
                 />
             )}
