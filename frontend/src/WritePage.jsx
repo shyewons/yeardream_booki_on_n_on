@@ -232,6 +232,18 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
         if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }, [scrollId, scrollTick])
 
+    // 화면이 가려질 때(다른 앱으로 넘어감 · 화면 꺼짐 · 탭 닫힘): 쓰던 문장을 기다리지 않고 바로 임시저장한다.
+    // 태블릿에서는 아래 '나가기 전 확인'이 뜨지 않는 경우가 많아서 따로 챙긴다.
+    useEffect(() => {
+        const onHide = () => { if (document.visibilityState === 'hidden') writer.flushDraft() }
+        document.addEventListener('visibilitychange', onHide)
+        window.addEventListener('pagehide', writer.flushDraft)
+        return () => {
+            document.removeEventListener('visibilitychange', onHide)
+            window.removeEventListener('pagehide', writer.flushDraft)
+        }
+    }, [writer])
+
     // 창을 닫거나 새로고침할 때: 쓰던 글자나 저장 안 된 문장이 있으면 브라우저가 한 번 물어본다
     useEffect(() => {
         const onBeforeUnload = (e) => {
@@ -316,6 +328,15 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
                         {state.save.retry && <button type="button" className="btn-sm" onClick={writer.retrySaves}>다시 저장하기</button>}
                     </p>
                 )
+            )}
+
+            {/* 쓰던 문장(확인하기 전) 임시저장 표시. 입력칸에 글자가 있을 때만 보인다 */}
+            {state.draft && state.box.trim() && (
+                <p id="draft-state" className={state.draft.status === 'error' ? 'err' : ''} role="status">
+                    {state.draft.status === 'error'
+                        ? '쓰던 문장을 저장하지 못했어요. 잠시 뒤에 다시 저장해요.'
+                        : `쓰던 문장도 임시저장했어요${state.draft.at ? ` · ${state.draft.at}` : ''}`}
+                </p>
             )}
 
             {/* 문장을 지운 뒤 잠깐 보이는 되돌리기 (writer.js 의 UNDO_SECONDS) */}

@@ -6,7 +6,9 @@
 //   문장의 저장 번호(seq)는 따로 갖지 않는다. 목록에서의 위치 + 1 이 그 번호다.
 //
 //   쓰던 문장 임시저장: 아직 통과하지 않은 입력칸의 글자를 서버(글의 draft 칸)에 덮어써 둔다 (syncDraft).
-//     · 입력을 멈추고 DRAFT_DELAY_MS 가 지나면   · '확인하기'를 누르면 바로   · 이 화면에서 나갈 때
+//     · 입력을 멈추고 DRAFT_DELAY_MS 가 지나면   · 쉬지 않고 치는 중이어도 DRAFT_MAX_WAIT_MS 마다
+//     · '확인하기'를 누르면 바로   · 이 화면에서 나갈 때   · 화면이 가려질 때(앱 전환 · 화면 꺼짐, flushDraft)
+//     칸이 하나라 매번 덮어쓴다 (문장 표에는 아무 줄도 생기지 않는다). 저장 여부는 st.draft 로 화면에 보여 준다.
 //     다시 들어오면 boot() 가 입력칸에 되살린다 (다시쓰기 · 위에 넣기 중이었다면 그 상태까지).
 //     문장이 저장되면 서버가 임시저장을 비운다.
 //
@@ -20,7 +22,8 @@
 //          w.boot()                          → 화면이 열릴 때 한 번
 import { api, apiStream, track as trackEvent } from './api.js'
 
-const DRAFT_DELAY_MS = 2000 // 입력을 멈추고 이만큼(1000 = 1초) 지나면 쓰던 문장을 임시저장한다
+const DRAFT_DELAY_MS = 2000      // 입력을 멈추고 이만큼(1000 = 1초) 지나면 쓰던 문장을 임시저장한다
+const DRAFT_MAX_WAIT_MS = 10000  // 쉬지 않고 치는 중이어도 이만큼마다 한 번은 임시저장한다 (실패했을 때 다시 해 보는 간격도 같다)
 const UNDO_SECONDS = 5      // 문장을 지운 뒤 '되돌리기'를 보여 주는 시간 (초)
 
 const track = (event, data) => trackEvent(event, data, 'write')
@@ -60,6 +63,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         confirmDeleteId: null,    // '정말 지울까요?'를 묻고 있는 줄의 id
         deletingId: null,         // 지우는 중인 줄의 id (서버 응답을 기다리는 중)
         undo: null,               // 되돌리기 { seq, text, busy, error } (UNDO_SECONDS 동안만)
+        draft: null,              // 쓰던 문장 임시저장 표시 { status: 'saved'|'error', at: 'HH:MM' } (없으면 null)
     }
 
     // ── 화면에 보이지 않는 상태 ──
@@ -79,6 +83,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     let tick = 0
     let draftSent = ''          // 서버에 임시저장되어 있는 내용 (draftKey 모양). 비어 있으면 임시저장 없음
     let draftTimer = null       // 입력이 멈추기를 기다리는 타이머
+    let draftWaitSince = null   // 아직 보내지 않은 글자를 처음 친 때 (DRAFT_MAX_WAIT_MS 계산용)
     let undoItem = null         // 되돌리기에 쓸 지운 줄 { s, seq } (화면에 있던 그 줄 그대로)
     let undoTimer = null
 
@@ -133,7 +138,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             s.inserted = false
             s.reason = null
             if (r.sentence_id) s.sid = r.sentence_id        // 내용이 바뀌면 서버는 새 줄을 만든다 → 번호가 바뀐다
-            if (r.changed) draftSent = ''                   // 문장이 저장되면 서버가 임시저장을 비운다
+            if (r.changed) { draftSent = ''; st.draft = null }   // 문장이 저장되면 서버가 임시저장을 비운다
             st.entry.status = r.entry.status
             lastSaved = String(r.saved_at || '').slice(11, 16)
             return true
@@ -171,30 +176,61 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     const draftKey = (d) => (d.text ? JSON.stringify([d.text, d.mode, d.seq]) : '')
     const draftSafe = () => draftKey(draftNow()) === draftSent   // 입력칸의 글자가 이미 서버에 임시저장되어 있는지
 
-    // 서버의 임시저장을 지금 상태에 맞춘다. now 가 아니면 입력이 멈추기를 기다렸다가 한다.
+    // 지금 서버로 보낼 임시저장 내용. 보내면 안 되는 때는 null.
+    function draftToSend(fixed) {
+        if (leaving) return null                          // '이야기 저장하기'로 넘어가는 중이면 건드리지 않는다
+        if (!fixed && st.busy && !st.box.trim()) return null   // 교정 중: 입력칸은 비었지만 그 문장은 아직 저장 전이다 → 임시저장을 남겨 둔다
+        const d = fixed || draftNow()
+        // 저장하지 못한 문장이 있으면 임시저장을 지우지 않는다 (그 문장의 마지막 보관본일 수 있다)
+        if (!d.text && st.sentences.some((x) => x.original && x.saveState !== 'saved')) return null
+        return draftKey(d) === draftSent ? null : d
+    }
+
+    async function sendDraft(d, keepalive = false) {
+        const key = draftKey(d)
+        try {
+            const r = await api(`/api/entries/${st.entry.id}/draft`, { method: 'PUT', body: d, keepalive })
+            draftSent = key
+            st.draft = d.text ? { status: 'saved', at: String(r.saved_at || '').slice(11, 16) } : null
+        } catch (e) {
+            if (authFailed(e)) return
+            st.draft = d.text ? { status: 'error', at: st.draft ? st.draft.at : '' } : st.draft
+            // 실패하면 DRAFT_MAX_WAIT_MS 뒤에 다시 해 본다 (그 사이 다시 치면 그때 보낸다)
+            if (!disposed && !draftTimer) draftTimer = setTimeout(() => { draftTimer = null; syncDraft(true) }, DRAFT_MAX_WAIT_MS)
+        }
+        emit()                                            // 저장 표시와 나가기 전 안내(unsavedWork)가 바뀐다
+    }
+
+    // 서버의 임시저장을 지금 상태에 맞춘다. now 가 아니면 입력이 멈추기를 기다렸다가 한다
+    // (멈추지 않고 계속 쳐도 DRAFT_MAX_WAIT_MS 가 지나면 보낸다).
     // 문장 저장과 같은 줄(saveChain)에 세워서, 문장 저장 → 임시저장 순서가 뒤바뀌지 않게 한다.
     // fixed 를 주면 '지금 상태' 대신 그 내용을 저장한다 (확인하기를 누른 순간의 글자: 차례가 올 때쯤엔 입력칸이 비어 있을 수 있다).
     function syncDraft(now, fixed = null) {
         if (!dbMode || !st.entry || disposed) return
         clearTimeout(draftTimer)
         draftTimer = null
-        if (!now) { draftTimer = setTimeout(() => syncDraft(true), DRAFT_DELAY_MS); return }
+        if (!now) {
+            if (draftWaitSince === null) draftWaitSince = Date.now()
+            const left = DRAFT_MAX_WAIT_MS - (Date.now() - draftWaitSince)
+            draftTimer = setTimeout(() => { draftTimer = null; syncDraft(true) }, Math.max(0, Math.min(DRAFT_DELAY_MS, left)))
+            return
+        }
+        draftWaitSince = null
         saveChain = saveChain.then(async () => {
-            if (leaving) return                             // '이야기 저장하기'로 넘어가는 중이면 건드리지 않는다
-            if (!fixed && st.busy && !st.box.trim()) return // 교정 중: 입력칸은 비었지만 그 문장은 아직 저장 전이다 → 임시저장을 남겨 둔다
-            const d = fixed || draftNow()
-            // 저장하지 못한 문장이 있으면 임시저장을 지우지 않는다 (그 문장의 마지막 보관본일 수 있다)
-            if (!d.text && st.sentences.some((x) => x.original && x.saveState !== 'saved')) return
-            const key = draftKey(d)
-            if (key === draftSent) return
-            try {
-                await api(`/api/entries/${st.entry.id}/draft`, { method: 'PUT', body: d })
-                draftSent = key
-                emit()                                        // 나가기 전 안내(unsavedWork)가 바뀔 수 있다
-            } catch (e) {
-                authFailed(e)                                 // 임시저장 실패는 따로 알리지 않는다 (나갈 때 '저장되지 않은 글'로 물어본다)
-            }
+            const d = draftToSend(fixed)
+            if (d) await sendDraft(d)
         })
+    }
+
+    // 화면이 가려질 때(다른 앱으로 넘어감 · 화면 꺼짐 · 탭 닫힘): 기다리지 않고 지금 바로 보낸다.
+    // 태블릿에서는 이때 페이지가 그대로 멈추거나 정리될 수 있어서, 줄(saveChain)을 기다리지 않고 keepalive 로 보낸다.
+    function flushDraft() {
+        if (!dbMode || !st.entry || disposed) return
+        clearTimeout(draftTimer)
+        draftTimer = null
+        draftWaitSince = null
+        const d = draftToSend(null)
+        if (d) { track('draft_flush', { chars: d.text.length }); sendDraft(d, true) }
     }
 
     // 저장되지 않은 줄을 앞에서부터 다시 저장한다 (앞 줄이 실패하면 거기서 멈춘다: 순서가 비면 서버가 받지 않는다)
@@ -316,6 +352,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         if (entry.draft_mode === 'edit' && inRange) st.editingId = st.sentences[at].id
         else if (entry.draft_mode === 'insert' && inRange) st.insertAt = at
         st.notice = '쓰다가 멈춘 문장을 불러왔어요.'
+        st.draft = { status: 'saved', at: String(entry.draft_saved_at || '').slice(11, 16) }
         const mode = entry.draft_mode === 'edit' || entry.draft_mode === 'insert' ? entry.draft_mode : 'new'
         draftSent = draftKey({ text, mode, seq: mode === 'new' ? null : Number(entry.draft_seq) })   // 서버에 있는 그대로
         if (!draftSafe()) syncDraft(false)                // 자리가 사라져 새 문장으로 되살린 경우: 서버 쪽도 맞춘다
@@ -771,10 +808,11 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         dispose() {
             if (draftTimer) syncDraft(true)                 // 기다리던 임시저장이 있으면 나가기 전에 보낸다
             clearTimeout(undoTimer)                         // 나가면 되돌리기는 사라진다
+            draftWaitSince = null
             disposed = true
             if (exprResolve) exprResolve()
         },
-        boot, submit, choose, setBox(v) { st.box = v; emit(); syncDraft(false) },
+        boot, submit, choose, setBox(v) { st.box = v; emit(); syncDraft(false) }, flushDraft,
         startEdit, cancelEdit, startInsert, moveSentence, retrySaves,
         askDelete, cancelDelete, confirmDelete, undoDelete,
         openTopics, chooseTopic, pickExpr, confirmExpr, retryExpr, skipExpr,
