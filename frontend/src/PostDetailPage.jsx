@@ -58,8 +58,12 @@ export default function PostDetailPage({ entryId, saved = false, onOpenEntry, on
         <div>
             {head}
             {saved && <p className="saved" role="status">✔ 이야기를 저장했어요!</p>}
-            <h1>{fmtDate(entry.date)} [{entry.status === 'done' ? '완성' : '쓰는 중'}]</h1>
-            <p className="sub">{data.book.title}{when ? ` · ${when}` : ''}</p>
+            {/* 제목: 일기는 날짜, 동화는 날짜가 없으니 책(동물) 이름으로 "○○에게 들려준 이야기" */}
+            <h1>
+                {isFairy ? `${data.book.title}에게 들려준 이야기` : fmtDate(entry.date)}
+                {' '}[{entry.status === 'done' ? '완성' : '쓰는 중'}]
+            </h1>
+            <p className="sub">{[isFairy ? '동화' : data.book.title, when].filter(Boolean).join(' · ')}</p>
             {entry.draft_text && <p>쓰다가 멈춘 문장: {entry.draft_text}</p>}
 
             {sentences.length ? (

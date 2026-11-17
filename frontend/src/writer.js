@@ -5,10 +5,17 @@
 //   저장은 한 번에 하나씩 차례로 한다 (saveChain). 문장 순서가 뒤바뀌지 않게 하기 위해서다.
 //   문장의 저장 번호(seq)는 따로 갖지 않는다. 목록에서의 위치 + 1 이 그 번호다.
 //
+//   쓰던 문장 임시저장: 아직 통과하지 않은 입력칸의 글자를 서버(글의 draft 칸)에 덮어써 둔다 (syncDraft).
+//     · 입력을 멈추고 DRAFT_DELAY_MS 가 지나면   · '확인하기'를 누르면 바로   · 이 화면에서 나갈 때
+//     다시 들어오면 boot() 가 입력칸에 되살린다 (다시쓰기 · 위에 넣기 중이었다면 그 상태까지).
+//     문장이 저장되면 서버가 임시저장을 비운다.
+//
 // 쓰는 법:  const w = createWriter({ book, date, practice, onSaved, onAuthError, onDateChange })
 //          w.subscribe(fn) / w.getSnapshot()  → 화면이 상태를 읽는다 (useSyncExternalStore)
 //          w.boot()                          → 화면이 열릴 때 한 번
 import { api, apiStream, track as trackEvent } from './api.js'
+
+const DRAFT_DELAY_MS = 2000 // 입력을 멈추고 이만큼(1000 = 1초) 지나면 쓰던 문장을 임시저장한다
 
 const track = (event, data) => trackEvent(event, data, 'write')
 const short = (e) => String((e && e.message) || e).slice(0, 200)
@@ -61,6 +68,8 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     let disposed = false
     let bootRun = 0             // boot 를 부른 횟수 (늦게 끝난 이전 boot 의 결과를 버리는 데 쓴다)
     let tick = 0
+    let draftSent = ''          // 서버에 임시저장되어 있는 내용 (draftKey 모양). 비어 있으면 임시저장 없음
+    let draftTimer = null       // 입력이 멈추기를 기다리는 타이머
 
     function emit() {
         if (disposed) return
@@ -105,6 +114,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
                                                       : await api(base, { method: 'PUT', body: payloadOf(s) })
             s.saveState = 'saved'
             s.inserted = false
+            if (r.changed) draftSent = ''                   // 문장이 저장되면 서버가 임시저장을 비운다
             st.entry.status = r.entry.status
             lastSaved = String(r.saved_at || '').slice(11, 16)
             return true
@@ -125,7 +135,47 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             emit()
             return ok
         })
-        return saveChain
+        const saved = saveChain                           // 이 문장의 저장 결과 (부른 쪽이 기다린다)
+        syncDraft(true)                                   // 문장 저장 뒤에 임시저장 상태를 맞춘다 (같은 문장이라 서버가 안 비운 경우 등)
+        return saved
+    }
+
+    // ── 쓰던 문장 임시저장 ──
+    // 지금 임시저장되어 있어야 할 내용: 입력칸의 글자 + 어느 자리의 것인지
+    function draftNow() {
+        if (!st.box.trim()) return { text: '', mode: 'new', seq: null }
+        const editAt = st.sentences.findIndex((x) => x.id === st.editingId)
+        if (editAt >= 0) return { text: st.box, mode: 'edit', seq: editAt + 1 }
+        if (st.insertAt !== null && st.insertAt < st.sentences.length) return { text: st.box, mode: 'insert', seq: st.insertAt + 1 }
+        return { text: st.box, mode: 'new', seq: null }
+    }
+    const draftKey = (d) => (d.text ? JSON.stringify([d.text, d.mode, d.seq]) : '')
+    const draftSafe = () => draftKey(draftNow()) === draftSent   // 입력칸의 글자가 이미 서버에 임시저장되어 있는지
+
+    // 서버의 임시저장을 지금 상태에 맞춘다. now 가 아니면 입력이 멈추기를 기다렸다가 한다.
+    // 문장 저장과 같은 줄(saveChain)에 세워서, 문장 저장 → 임시저장 순서가 뒤바뀌지 않게 한다.
+    // fixed 를 주면 '지금 상태' 대신 그 내용을 저장한다 (확인하기를 누른 순간의 글자: 차례가 올 때쯤엔 입력칸이 비어 있을 수 있다).
+    function syncDraft(now, fixed = null) {
+        if (!dbMode || !st.entry || disposed) return
+        clearTimeout(draftTimer)
+        draftTimer = null
+        if (!now) { draftTimer = setTimeout(() => syncDraft(true), DRAFT_DELAY_MS); return }
+        saveChain = saveChain.then(async () => {
+            if (leaving) return                             // '이야기 저장하기'로 넘어가는 중이면 건드리지 않는다
+            if (!fixed && st.busy && !st.box.trim()) return // 교정 중: 입력칸은 비었지만 그 문장은 아직 저장 전이다 → 임시저장을 남겨 둔다
+            const d = fixed || draftNow()
+            // 저장하지 못한 문장이 있으면 임시저장을 지우지 않는다 (그 문장의 마지막 보관본일 수 있다)
+            if (!d.text && st.sentences.some((x) => x.original && x.saveState !== 'saved')) return
+            const key = draftKey(d)
+            if (key === draftSent) return
+            try {
+                await api(`/api/entries/${st.entry.id}/draft`, { method: 'PUT', body: d })
+                draftSent = key
+                emit()                                        // 나가기 전 안내(unsavedWork)가 바뀔 수 있다
+            } catch (e) {
+                authFailed(e)                                 // 임시저장 실패는 따로 알리지 않는다 (나갈 때 '저장되지 않은 글'로 물어본다)
+            }
+        })
     }
 
     // 저장되지 않은 줄을 앞에서부터 다시 저장한다 (앞 줄이 실패하면 거기서 멈춘다: 순서가 비면 서버가 받지 않는다)
@@ -218,6 +268,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             st.sentences = r.sentences.map(fromServer)
             st.loading = false
             st.busy = false
+            restoreDraft(r.entry)
             if (st.kind === 'fairy') {                      // 동화: 아직 한 줄도 안 썼고 주제도 없으면 주제부터 추천한다
                 st.topic = loadTopic()
                 if (!st.topic && !st.sentences.length) openTopics(false)
@@ -233,6 +284,23 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             st.loadError = e.message
             emit()
         }
+    }
+
+    // 임시저장된 '쓰던 문장'을 입력칸에 되살린다. 다시쓰기 · 위에 넣기 중이었다면 그 상태로 돌아간다.
+    // 그 자리의 문장이 이제 없으면(다른 곳에서 글이 바뀐 경우) 새 문장으로만 되살린다.
+    function restoreDraft(entry) {
+        const text = typeof entry.draft_text === 'string' ? entry.draft_text : ''
+        if (!text.trim()) return
+        const at = Number(entry.draft_seq) - 1
+        const inRange = Number.isInteger(at) && at >= 0 && at < st.sentences.length
+        st.box = text
+        if (entry.draft_mode === 'edit' && inRange) st.editingId = st.sentences[at].id
+        else if (entry.draft_mode === 'insert' && inRange) st.insertAt = at
+        st.notice = '쓰다가 멈춘 문장을 불러왔어요.'
+        const mode = entry.draft_mode === 'edit' || entry.draft_mode === 'insert' ? entry.draft_mode : 'new'
+        draftSent = draftKey({ text, mode, seq: mode === 'new' ? null : Number(entry.draft_seq) })   // 서버에 있는 그대로
+        if (!draftSafe()) syncDraft(false)                // 자리가 사라져 새 문장으로 되살린 경우: 서버 쪽도 맞춘다
+        track('draft_restore', { chars: text.length, mode: entry.draft_mode || 'new', kept: draftNow().mode })
     }
 
     // ── 입력 안내 ──
@@ -256,6 +324,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         st.editingId = id
         resetLine(); clearNotice(); st.box = ''
         scrollTo(id); focus(); emit()
+        syncDraft(false)
         loadQuestion()
     }
 
@@ -266,6 +335,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         st.editingId = null
         resetLine(); clearNotice(); st.box = ''
         focus(); emit()
+        syncDraft(false)
         loadQuestion()
     }
 
@@ -278,6 +348,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         st.insertAt = i
         resetLine(); clearNotice(); st.box = ''
         focus(); emit()
+        syncDraft(false)
         loadQuestion()
     }
 
@@ -317,6 +388,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             }
             emit()
         })
+        syncDraft(true)                                   // 순서를 바꾸면 다시쓰기 · 넣기 상태가 풀린다 → 쓰던 문장을 새 문장으로 맞춰 둔다
     }
 
     // ── 교정 (스트림) ──
@@ -431,6 +503,8 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
                 if (st.insertAt !== null && st.insertAt < st.sentences.length) { s.inserted = true; st.sentences.splice(st.insertAt, 0, s) }
                 else st.sentences.push(s)
             }
+            const wasEditing = st.editingId                 // 교정이 실패하면 이 상태로 되돌린다
+            const wasInsertAt = s.inserted ? st.sentences.indexOf(s) : null
             st.insertAt = null
             s.work = { original: r.original_sentence, progress: '교정을 시작해요…', tries, reasons: reasonsNow.slice() }
             reasonsNow = []
@@ -443,14 +517,17 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             if (dbMode && s.saveState === 'pending') queueSave(s)                          // 교정이 끝난 문장을 바로 임시저장
             if (st.kind === 'fairy' && s.original && !s.work) await offerExpressions(s)    // 동화: 다르게 쓴 표현을 고르게 한다
             st.busy = false
+            st.editingId = null
             if (s.work && s.work.status === 'error') {      // 실패: 새 줄이었다면 목록에서 치우고 입력으로 돌려준다 (다시쓰기였다면 기존 문장 유지)
                 const msg = `${s.work.error} 다시 시도해 주세요.`
                 if (!s.original) st.sentences = st.sentences.filter((x) => x.id !== s.id)
                 else delete s.work
                 st.notice = msg
                 st.box = r.original_sentence
+                // 쓰던 자리로 되돌린다 (다시쓰기였으면 그 줄, 위에 넣기였으면 그 자리). 임시저장도 그대로 남아 있다
+                if (st.sentences.some((x) => x.id === wasEditing)) st.editingId = wasEditing
+                else if (wasInsertAt !== null && wasInsertAt < st.sentences.length) st.insertAt = wasInsertAt
             }
-            st.editingId = null
             attempt = 0
             tries = 0
             scrollTo(s.id); focus(); emit()
@@ -491,11 +568,13 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         st.busy = false
         if (st.view === 'write') focus()
         emit()
+        syncDraft(true)                                   // 결과에 맞춘다: 건너뛴 줄이면 지우고, 다시 써야 하면 그대로 둔다
     }
 
     function submit() {
         if (st.busy) return
         carried = []
+        syncDraft(true, draftNow())                       // 검사 · 교정에 들어가기 전에 쓴 문장을 먼저 임시저장한다
         run([])
     }
 
@@ -557,7 +636,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     // 나가도 되는지: 쓰던 글자나 저장 안 된 문장이 있으면 화면이 한 번 물어본다
     function unsavedWork() {
         if (leaving) return null
-        const typing = st.box.trim().length > 0 || st.busy
+        const typing = st.busy || (st.box.trim().length > 0 && !(dbMode && draftSafe()))   // 임시저장된 글자는 '쓰던 글자'로 치지 않는다
         const unsaved = dbMode ? st.sentences.some((x) => x.original && x.saveState !== 'saved') : written().length > 0
         if (!typing && !unsaved) return null
         return { typing, unsaved }
@@ -567,8 +646,12 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     return {
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
         getSnapshot: () => snapshot,
-        dispose() { disposed = true; if (exprResolve) exprResolve() },
-        boot, submit, choose, setBox(v) { st.box = v; emit() },
+        dispose() {
+            if (draftTimer) syncDraft(true)                 // 기다리던 임시저장이 있으면 나가기 전에 보낸다
+            disposed = true
+            if (exprResolve) exprResolve()
+        },
+        boot, submit, choose, setBox(v) { st.box = v; emit(); syncDraft(false) },
         startEdit, cancelEdit, startInsert, moveSentence, retrySaves,
         openTopics, chooseTopic, pickExpr, confirmExpr, retryExpr, skipExpr,
         toggleFix(id, open) { const s = st.sentences.find((x) => x.id === id); if (s && !!s.openFix !== open) { s.openFix = open; emit() } },

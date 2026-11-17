@@ -46,6 +46,8 @@ CREATE TABLE entries (
   status       ENUM('writing','done') NOT NULL DEFAULT 'writing' COMMENT '작성상태: 문장을 고치면 writing, 이야기 저장하기를 누르면 done',
   draft_text   TEXT NULL COMMENT '임시입력: 검사 전 입력 중인 문장 (덮어쓰기)',
   draft_saved_at DATETIME NULL COMMENT '임시저장시각',
+  draft_mode   VARCHAR(10) NULL COMMENT '임시입력 종류: new 새 문장 / edit 다시쓰기 / insert 위에 넣기',
+  draft_seq    INT NULL COMMENT '임시입력 자리: edit·insert 일 때 몇 번째 문장인지',
   saved_at     DATETIME NULL COMMENT '저장시각: 이야기 저장하기를 누른 때',
   edited_at    DATETIME NULL COMMENT '수정시각: 문장 내용이 바뀔 때만 갱신',
   created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '만든시각',

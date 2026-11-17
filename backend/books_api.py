@@ -11,6 +11,7 @@
   PUT  /api/entries/{entry_id}/sentences/{seq}    문장 저장(임시저장). 같은 seq 면 덮어쓰기, 끝 다음 순서면 새로 붙이기
   POST /api/entries/{entry_id}/sentences/{seq}/insert   문장 끼워 넣기 (body 는 문장 저장과 같다)
   POST /api/entries/{entry_id}/sentences/{seq}/move     문장 순서 바꾸기  body: {"to": 3}
+  PUT  /api/entries/{entry_id}/draft              쓰던 문장 임시저장  body: {"text": "...", "mode": "new|edit|insert", "seq": 3}  (글자가 비면 지운다)
   POST /api/entries/{entry_id}/complete           '이야기 저장하기' (상태 done)
 
 DB에 닿지 못하면 503, 책이나 글이 없거나 내 것이 아니면 404, 요청 내용이 맞지 않으면 400,
@@ -54,7 +55,7 @@ def _act(name, result, **ids):
     """저장 동작 하나를 logs/action_날짜.log 에 적고 result 를 그대로 돌려준다. 글 내용은 적지 않고 번호 · 상태 · 개수만 적는다."""
     brief = {}
     if isinstance(result, dict):
-        for key in ("id", "kind", "seq", "changed", "moved", "status"):
+        for key in ("id", "kind", "seq", "changed", "moved", "status", "saved", "chars", "mode"):
             if isinstance(result.get(key), (str, int, bool)):
                 brief[key] = result[key]
         entry = result.get("entry")
@@ -125,6 +126,12 @@ def insert_sentence(entry_id: int, seq: int, body: dict = Body(...)):
 def move_sentence(entry_id: int, seq: int, body: dict = Body(...)):
     uid = _user()
     return _found(_act("move_sentence", _guard(repo.move_sentence, uid, entry_id, seq, (body or {}).get("to")), entry=entry_id, seq=seq, to=(body or {}).get("to")), "글")
+
+
+@router.put("/entries/{entry_id}/draft")                         # 쓰던 문장 임시저장  body: {"text": "...", "mode": "new|edit|insert", "seq": 3}
+def put_draft(entry_id: int, body: dict = Body(...)):
+    uid = _user()
+    return _found(_act("save_draft", _guard(repo.save_draft, uid, entry_id, body), entry=entry_id), "글")
 
 
 @router.post("/entries/{entry_id}/complete")

@@ -192,7 +192,7 @@ def list_entries(user_id, book_id, page=1, size=None):
 def get_entry(user_id, entry_id):
     """글이 없거나 내 글이 아니면 None. 문장은 순서대로, 교정 항목은 파이프라인 응답과 같은 이름으로 붙인다."""
     rows = db.query(
-        """SELECT e.id, e.book_id, e.diary_date, e.status, e.draft_text, e.draft_saved_at,
+        """SELECT e.id, e.book_id, e.diary_date, e.status, e.draft_text, e.draft_saved_at, e.draft_mode, e.draft_seq,
                   e.saved_at, e.edited_at, e.created_at,
                   b.kind AS book_kind, b.title AS book_title
              FROM entries e
@@ -254,6 +254,7 @@ def get_entry(user_id, entry_id):
         "book": {"id": e["book_id"], "kind": e["book_kind"], "title": e["book_title"]},
         "entry": {"id": e["id"], "book_id": e["book_id"], "date": e["diary_date"], "status": e["status"],
                   "draft_text": e["draft_text"], "draft_saved_at": e["draft_saved_at"],
+                  "draft_mode": e["draft_mode"], "draft_seq": e["draft_seq"],     # 쓰던 문장이 어느 자리의 것인지 (save_draft)
                   "saved_at": e["saved_at"], "edited_at": e["edited_at"], "created_at": e["created_at"]},
         "sentences": sentences,
     }
@@ -512,10 +513,48 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
                 tx.execute("UPDATE sentences SET expression_choice = :ec WHERE id = :sid", {"ec": choice, "sid": sid})
         if changed:
             _insert_corrections(tx, sid, items)
-            tx.execute("""UPDATE entries SET status = 'writing', edited_at = :now, draft_text = NULL, draft_saved_at = NULL
+            tx.execute("""UPDATE entries SET status = 'writing', edited_at = :now,
+                                 draft_text = NULL, draft_saved_at = NULL, draft_mode = NULL, draft_seq = NULL
                            WHERE id = :eid""", {"now": now, "eid": entry_id})
         entry = tx.query("SELECT id, status, edited_at, saved_at FROM entries WHERE id = :eid", {"eid": entry_id})[0]
         return {"sentence_id": sid, "seq": seq, "changed": changed, "saved_at": now, "entry": entry}
+
+    return db.run_in_transaction(work)
+
+
+# ── 쓰던 문장 임시저장 ───────────────────────────────────────────────────────
+# 아직 검사 · 교정을 통과하지 않은 '쓰던 글자'를 글(entries)에 덮어써 둔다. 문장(sentences)이 아니다.
+#   draft_text   쓰던 글자
+#   draft_mode   new 새 문장 / edit 다시쓰기 / insert 위에 넣기
+#   draft_seq    edit · insert 일 때 몇 번째 문장 자리인지 (new 는 비워 둔다)
+# 문장이 저장되거나(save_sentence) 이야기를 저장하면(complete_entry) 네 칸이 함께 비워진다.
+DRAFT_MODES = ("new", "edit", "insert")
+
+
+def save_draft(user_id, entry_id, data):
+    """쓰던 문장을 임시저장한다. 글자가 비어 있으면 임시저장을 지운다. 글이 없거나 내 글이 아니면 None.
+    글의 상태(writing/done)와 수정 시각은 바꾸지 않는다 (아직 글 내용이 바뀐 것이 아니다)."""
+    data = data if isinstance(data, dict) else {}
+    text = data.get("text")
+    text = text if isinstance(text, str) else ""
+    if len(text) > MAX_TEXT:
+        raise BadRequest(f"문장은 {MAX_TEXT}자까지 쓸 수 있어요.")
+    mode = data.get("mode") if data.get("mode") in DRAFT_MODES else "new"
+    seq = _opt_int(data.get("seq")) if mode != "new" else None
+    if mode != "new" and (seq is None or seq < 1):       # 자리를 알 수 없으면 새 문장으로 둔다
+        mode, seq = "new", None
+
+    def work(tx):
+        if not _own_entry(tx, user_id, entry_id):
+            return None
+        now = _now_str()
+        if text.strip():
+            tx.execute("""UPDATE entries SET draft_text = :t, draft_saved_at = :now, draft_mode = :m, draft_seq = :s
+                           WHERE id = :eid""", {"t": text, "now": now, "m": mode, "s": seq, "eid": entry_id})
+            return {"saved": True, "chars": len(text), "mode": mode, "seq": seq, "saved_at": now}
+        tx.execute("""UPDATE entries SET draft_text = NULL, draft_saved_at = NULL, draft_mode = NULL, draft_seq = NULL
+                       WHERE id = :eid""", {"eid": entry_id})
+        return {"saved": False, "chars": 0, "mode": None, "seq": None, "saved_at": None}
 
     return db.run_in_transaction(work)
 
@@ -528,7 +567,8 @@ def complete_entry(user_id, entry_id):
         n = tx.query("SELECT COUNT(*) AS n FROM sentences WHERE entry_id = :eid", {"eid": entry_id})[0]["n"]
         if n == 0:
             raise BadRequest("문장을 하나 이상 써야 저장할 수 있어요.")
-        tx.execute("""UPDATE entries SET status = 'done', saved_at = :now, draft_text = NULL, draft_saved_at = NULL
+        tx.execute("""UPDATE entries SET status = 'done', saved_at = :now,
+                             draft_text = NULL, draft_saved_at = NULL, draft_mode = NULL, draft_seq = NULL
                        WHERE id = :eid""", {"now": _now_str(), "eid": entry_id})
         entry = tx.query("SELECT id, status, edited_at, saved_at FROM entries WHERE id = :eid", {"eid": entry_id})[0]
         return {"entry": entry, "sentence_count": n}

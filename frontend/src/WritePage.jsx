@@ -232,7 +232,9 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
 
     const entryDate = state.entry ? state.entry.date : null
     const title = !state.dbMode ? '일기 쓰기 · 연습 (저장되지 않아요)'
-        : state.entry ? `${state.bookTitle} · ${fmtDate(entryDate)}` : '글쓰기'
+        : !state.entry ? '글쓰기'
+        : state.kind === 'fairy' ? `${state.bookTitle}에게 들려주는 이야기`     // 동화는 날짜가 없다
+        : `${state.bookTitle} · ${fmtDate(entryDate)}`
     useEffect(() => {
         document.title = state.dbMode && state.bookTitle ? `${state.bookTitle} 쓰기` : '글쓰기'
     }, [state.dbMode, state.bookTitle])
@@ -351,7 +353,7 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
                             ))}
                         </div>
 
-                        {state.dbMode && <p className="note" id="unsaved-note">확인하기를 누르기 전의 문장은 저장되지 않아요. 목록으로 나가면 사라져요.</p>}
+                        {state.dbMode && <p className="note" id="unsaved-note">쓰던 문장은 잠시 멈추면 임시저장돼요. 다시 들어오면 이어서 쓸 수 있어요.</p>}
                         <div className="actions">
                             <button type="button" id="finish" disabled={state.busy || written.length === 0} onClick={writer.finish}>다 썼어요</button>
                             <span className="hint" id="hint">{state.busy ? '검사·교정 중에는 다른 줄을 고칠 수 없어요' : ''}</span>
