@@ -169,8 +169,9 @@ function CompleteOffer({ writer, onLeave }) {
     )
 }
 
-// 동화: 주제 추천 (추천 1개 + 다른 주제 3개 + 더 보기 + 내가 정할게요)
-function TopicBox({ box, writer }) {
+// 동화: 주제 바꾸기 (추천 1개 + 다른 주제 3개 + 더 보기 + 내가 정할래요 + 그대로 둘래요)
+// 주제는 새 책 만들기에서 고르고, 여기서는 첫 문장을 쓰기 전에만 바꿀 수 있다 (writer.topicChangeable)
+function TopicBox({ box, writer, error }) {
     return (
         <div id="topic-box">
             <p className="ask" id="topic-ask">어떤 이야기를 쓸까요? 「{box.pick}」에 대한 이야기는 어때요?</p>
@@ -185,8 +186,10 @@ function TopicBox({ box, writer }) {
             </div>
             <div className="row">
                 <button type="button" className="btn-sm" onClick={() => writer.openTopics(true)}>다른 주제 더 보기</button>
-                <button type="button" className="btn-sm" onClick={() => writer.chooseTopic('')}>내가 정할게요</button>
+                <button type="button" className="btn-sm" onClick={() => writer.chooseTopic('')}>내가 정할래요</button>
+                <button type="button" className="btn-sm" id="topic-keep" onClick={writer.closeTopics}>그대로 둘래요</button>
             </div>
+            {error && <p role="alert" id="topic-error">{error}</p>}
         </div>
     )
 }
@@ -399,13 +402,19 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
                     </ul>
 
                     <section id="composer" aria-label="문장 입력">
-                        {state.topicBox && <TopicBox box={state.topicBox} writer={writer} />}
+                        {state.topicBox && <TopicBox box={state.topicBox} writer={writer} error={state.topicError} />}
                         {state.kind === 'fairy' && state.entry && !state.topicBox && (
                             <p id="topic-line">
                                 <span>{state.topic ? `주제: ${state.topic}` : '주제를 스스로 정했어요'}</span>
-                                <button type="button" className="btn-sm" onClick={() => writer.openTopics(false)}>
-                                    {state.topic ? '주제 바꾸기' : '주제 추천받기'}
-                                </button>
+                                {state.topicPrompt && <><br /><span id="topic-prompt">{state.topicPrompt}</span></>}
+                                {writer.topicChangeable() && (
+                                    <>
+                                        {' '}
+                                        <button type="button" className="btn-sm" onClick={() => writer.openTopics(false)}>
+                                            {state.topic ? '주제 바꾸기' : '주제 추천받기'}
+                                        </button>
+                                    </>
+                                )}
                             </p>
                         )}
                         {state.expr && <ExprBox expr={state.expr} writer={writer} />}

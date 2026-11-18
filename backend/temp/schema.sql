@@ -27,18 +27,53 @@ CREATE TABLE users (
   UNIQUE KEY uq_users_nickname (nickname)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사용자';
 
+-- 동화 주제 (새 책 만들기에서 고른다. 주제 추천 /api/topics 는 켜진 것만 읽는다. 책과 문장에 고른 주제 번호가 남는다)
+CREATE TABLE fairy_topics (
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  title       VARCHAR(100) NOT NULL COMMENT '주제 이름 (예: 고양이)',
+  prompt      VARCHAR(200) NULL COMMENT '주제 카드에 보이는 이야기 시작 문장 (예: 누구의 발자국일까?)',
+  is_active   TINYINT NOT NULL DEFAULT 1 COMMENT '추천에 쓰는지 (0 이면 추천에서 빠진다. 이미 쓴 책 · 문장의 번호는 그대로)',
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='동화 주제 목록';
+
+INSERT INTO fairy_topics (title, prompt, is_active, created_at) VALUES
+('고양이','고양이가 밤마다 지붕 위에서 누군가를 기다려. 누구를 기다리는 걸까?',1,NOW()),
+('강아지','강아지가 산책길에서 반짝이는 열쇠를 물어 왔어. 어디에 쓰는 열쇠일까?',1,NOW()),
+('토끼','토끼가 숲에서 자기 발보다 훨씬 큰 발자국을 발견했어. 누구의 발자국일까?',1,NOW()),
+('공룡','아침에 일어나 보니 마당에 아기 공룡이 앉아 있어. 공룡은 어디서 왔을까?',1,NOW()),
+('용','불을 뿜지 못하는 꼬마 용이 있어. 이 용은 무엇을 잘할까?',1,NOW()),
+('곰','겨울잠에서 일찍 깬 곰이 숲속 친구들을 찾아 나섰어. 누구를 만났을까?',1,NOW()),
+('펭귄','더운 나라에 놀러 간 펭귄이 있어. 펭귄은 더위를 어떻게 이겨 냈을까?',1,NOW()),
+('고래','바다 깊은 곳에서 고래가 노래를 불렀어. 그 노래를 듣고 누가 찾아왔을까?',1,NOW()),
+('다람쥐','다람쥐가 숨겨 둔 도토리가 하나도 없어졌어. 누가 가져갔을까?',1,NOW()),
+('도깨비','도깨비 방망이를 주웠는데, 소원을 딱 하나만 들어준대. 무엇을 빌까?',1,NOW()),
+('로봇','고장 난 로봇이 다시 움직이기 시작했어. 로봇이 제일 먼저 한 일은 뭘까?',1,NOW()),
+('우주선','우리 집 뒷마당에 작은 우주선이 내려앉았어. 안에서 누가 나왔을까?',1,NOW()),
+('마법 지팡이','지팡이를 흔들 때마다 엉뚱한 일이 생겨. 오늘은 무슨 일이 생겼을까?',1,NOW()),
+('보물 상자','바닷가 모래 속에서 오래된 상자를 찾았어. 상자 안에는 무엇이 들어 있을까?',1,NOW()),
+('말하는 나무','숲속 나무가 내 이름을 불렀어. 나무는 무슨 이야기를 하고 싶을까?',1,NOW()),
+('구름','폭신한 구름이 내 앞에 내려와 타 보라고 했어. 구름은 어디로 데려다줄까?',1,NOW()),
+('달','어느 날 밤 하늘에서 달이 사라졌어. 달은 어디에 간 걸까?',1,NOW()),
+('무지개','무지개 끝까지 걸어가 보기로 했어. 그곳에는 무엇이 있을까?',1,NOW()),
+('눈사람','내가 만든 눈사람이 밤에 몰래 움직였어. 눈사람은 어디에 갔을까?',1,NOW()),
+('장난감 기차','장난감 기차가 진짜 기차처럼 커졌어. 기차를 타고 어디로 갈까?',1,NOW());
+
 -- 책 (일기 동물 / 동화책 한 권)
 CREATE TABLE books (
   id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   user_id     BIGINT UNSIGNED NOT NULL,
   kind        ENUM('diary','fairy') NOT NULL COMMENT '종류: 일기/동화',
+  fairy_topic_id BIGINT UNSIGNED NULL COMMENT '동화: 책 만들 때 고른 주제. NULL = 자유 주제 (일기는 늘 NULL)',
   title       VARCHAR(60)  NOT NULL COMMENT '제목 (일기는 동물 이름)',
   cover       VARCHAR(20)  NULL COMMENT '표지/동물 모양 (양, 알파카 등)',
   visibility  ENUM('full','stats') NOT NULL DEFAULT 'stats' COMMENT '공개여부: 원문 공개/통계만 (협의 필요)',
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_books_user (user_id),
-  CONSTRAINT fk_books_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  KEY idx_books_topic (fairy_topic_id),
+  CONSTRAINT fk_books_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_books_topic FOREIGN KEY (fairy_topic_id) REFERENCES fairy_topics (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='책';
 
 -- 글 (일기 하루 / 동화 한 편)
@@ -62,21 +97,6 @@ CREATE TABLE entries (
   UNIQUE KEY uq_entries_book_date (book_id, diary_date),  -- 같은 책, 같은 날짜의 글은 하나만 (NULL은 여러 개 가능)
   CONSTRAINT fk_entries_book FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='글';
-
--- 동화 주제 (주제 추천 /api/topics 가 켜진 것만 읽는다. 문장마다 고른 주제 번호가 남는다)
-CREATE TABLE fairy_topics (
-  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  title       VARCHAR(50) NOT NULL COMMENT '주제 이름 (예: 고양이)',
-  is_active   TINYINT NOT NULL DEFAULT 1 COMMENT '추천에 쓰는지 (0 이면 추천에서 빠진다. 이미 쓴 문장의 번호는 그대로)',
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='동화 주제 목록';
-
-INSERT INTO fairy_topics (title, is_active, created_at) VALUES
-('고양이',1,NOW()),('강아지',1,NOW()),('토끼',1,NOW()),('공룡',1,NOW()),('용',1,NOW()),
-('곰',1,NOW()),('펭귄',1,NOW()),('고래',1,NOW()),('다람쥐',1,NOW()),('도깨비',1,NOW()),
-('로봇',1,NOW()),('우주선',1,NOW()),('마법 지팡이',1,NOW()),('보물 상자',1,NOW()),('말하는 나무',1,NOW()),
-('구름',1,NOW()),('달',1,NOW()),('무지개',1,NOW()),('눈사람',1,NOW()),('장난감 기차',1,NOW());
 
 -- 문장 (유효성 검사 + 최종 결과)
 CREATE TABLE sentences (

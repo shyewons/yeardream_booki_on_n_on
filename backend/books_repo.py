@@ -131,9 +131,13 @@ def get_book(user_id, book_id):
 KINDS = ("diary", "fairy")
 COVERS = ("sheep", "alpaca")
 MAX_TITLE = 20          # 동물 이름 최대 글자 수 (DB 칸은 60자)
+TOPIC_CHANGE_MAX_SENTENCES = 0   # 동화 주제를 바꿀 수 있는 때: 이야기의 보이는 문장이 이 수 이하일 때만.
+                                 # 0 = 첫 문장을 쓰기 전에만 / None = 언제나. 화면은 글 응답의 entry.topic_changeable 로 안다
 
 
-def create_book(user_id, kind, title):
+def create_book(user_id, kind, title, fairy_topic_id=None):
+    """책을 만든다. 동화는 고른 주제 번호(fairy_topic_id)를 함께 받는다: None 이면 자유 주제(내가 정할래요).
+    일기는 주제를 쓰지 않는다 (보내도 NULL)."""
     if kind not in KINDS:
         raise BadRequest("일기와 동화 중에서 골라 주세요.")
     if not isinstance(title, str) or not title.strip():
@@ -143,12 +147,14 @@ def create_book(user_id, kind, title):
         raise BadRequest(f"이름은 {MAX_TITLE}자까지 쓸 수 있어요.")
 
     def work(tx):
+        topic = _topic_arg(tx, kind, fairy_topic_id)        # 없는 주제 · 꺼진 주제면 400
         n = tx.query("SELECT COUNT(*) AS n FROM books WHERE user_id = :uid", {"uid": user_id})[0]["n"]
         cover = COVERS[n % len(COVERS)]                     # 양 · 알파카를 번갈아 (모양 고르기는 화면이 생기면)
         bid = tx.insert(
-            "INSERT INTO books (user_id, kind, title, cover, visibility, created_at) VALUES (:uid, :k, :t, :c, 'stats', :now)",
-            {"uid": user_id, "k": kind, "t": title, "c": cover, "now": _now_str()})
-        return {"id": bid, "kind": kind, "title": title, "cover": cover}
+            """INSERT INTO books (user_id, kind, title, cover, visibility, created_at, fairy_topic_id)
+               VALUES (:uid, :k, :t, :c, 'stats', :now, :tp)""",
+            {"uid": user_id, "k": kind, "t": title, "c": cover, "now": _now_str(), "tp": topic})
+        return {"id": bid, "kind": kind, "title": title, "cover": cover, "fairy_topic_id": topic}
 
     return db.run_in_transaction(work)
 
@@ -251,14 +257,11 @@ def get_entry(user_id, entry_id):
         "corrections": by_sentence.get(s["id"], []),
     } for s in sents]
 
-    # 지금 주제: 가장 나중에 저장된 보이는 문장의 주제 (화면이 다른 기기에서 열어도 주제를 이어 가게).
-    # 그 문장이 주제 없이 쓴 것이면 None → 화면은 이 브라우저에 기억해 둔 주제를 쓴다
-    topic = None
-    if sents:
-        last = max(sents, key=lambda x: x["id"])
-        if last["fairy_topic_id"] is not None:
-            t = db.query("SELECT id, title FROM fairy_topics WHERE id = :t", {"t": last["fairy_topic_id"]})
-            topic = t[0] if t else None
+    # 동화 주제: 책에 저장된 주제 (책 만들 때 고름). None 이면 자유 주제
+    topic, changeable = None, False
+    if e["book_kind"] == "fairy":
+        topic = _book_topic(db, e["book_id"])
+        changeable = _topic_changeable(len(sents))
 
     return {
         "nav": _neighbors(e),
@@ -268,7 +271,9 @@ def get_entry(user_id, entry_id):
                   "draft_mode": e["draft_mode"], "draft_seq": e["draft_seq"],     # 쓰던 문장이 어느 자리의 것인지 (save_draft)
                   "saved_at": e["saved_at"], "edited_at": e["edited_at"], "created_at": e["created_at"],
                   "day_done_at": e["day_done_at"],                                  # 일기 하루치를 처음 채운 시각 (없으면 None)
-                  "topic": topic},                                                  # 동화: 지금 주제 {id, title} 또는 None
+                  "topic": topic,                                                   # 동화: 책의 주제 {id, title, prompt} 또는 None(자유 주제)
+                  "topic_changeable": changeable,                                   # 동화: 지금 주제를 바꿀 수 있는지
+                  "topic_change_max": TOPIC_CHANGE_MAX_SENTENCES},                  # 동화: 문장이 몇 개까지일 때 바꿀 수 있는지 (None = 언제나)
         "sentences": sentences,
         "rules": rules.public(),                                                    # 보상 기준 숫자 (reward_rules.py)
     }
@@ -445,21 +450,56 @@ def _clean_text(v, name):
 
 
 # ── 동화 주제 · 일기 하루치 ─────────────────────────────────────────────────
-# 동화 주제는 문장마다 남긴다 (sentences.fairy_topic_id). 주제를 바꿔 가며 써도 문장별로 그때의 주제가 남아,
+# 동화 주제는 책을 만들 때 고른다 (books.fairy_topic_id, NULL = 자유 주제 '내가 정할래요').
+# 바꾸기는 TOPIC_CHANGE_MAX_SENTENCES 까지만 된다 (지금은 첫 문장을 쓰기 전에만. set_book_topic).
+# 문장마다에도 남긴다 (sentences.fairy_topic_id). 바꾸기를 넓혀도 문장별로 그때의 주제가 남아,
 # 보상 쪽에서 '마지막 주제'든 '주제별 문장 수'든 나중에 정해 셀 수 있다.
-#   새 문장 · 위에 넣은 문장   화면이 보낸 지금 주제 (없으면 NULL = 주제 없이 씀)
-#   다시쓰기 · 표현 선택       같은 문장을 고친 것이라 옛 줄의 주제를 그대로 물려받는다 (화면이 보낸 값은 쓰지 않는다)
+#   새 문장 · 위에 넣은 문장   책의 지금 주제 (서버가 넣는다. 화면이 보낸 값은 쓰지 않는다)
+#   다시쓰기 · 표현 선택       같은 문장을 고친 것이라 옛 줄의 주제를 그대로 물려받는다
 # 일기 하루치는 보이는 문장이 reward_rules.DIARY_DAY_SENTENCES 개가 되는 순간 entries.day_done_at 에 한 번 적는다.
 #   문장은 검사 · 교정을 통과해야 저장되므로 '검사를 통과한 문장'만 센다 (임시저장 draft_text 는 세지 않는다).
 
 def list_topics():
-    """켜져 있는 동화 주제 [{id, title}] (fairy_topics.is_active = 1). 하나도 없으면 빈 목록."""
-    return db.query("SELECT id, title FROM fairy_topics WHERE is_active = 1 ORDER BY id")
+    """켜져 있는 동화 주제 [{id, title, prompt}] (fairy_topics.is_active = 1). 하나도 없으면 빈 목록.
+    prompt 는 주제 카드에 보이는 이야기 시작 문장 (없으면 None)."""
+    return db.query("SELECT id, title, prompt FROM fairy_topics WHERE is_active = 1 ORDER BY id")
+
+
+def _book_topic(q, book_id):
+    """책의 주제 {id, title, prompt}. 자유 주제 · 일기면 None. q 는 db 또는 트랜잭션(tx)."""
+    rows = q.query("""SELECT t.id, t.title, t.prompt FROM books b JOIN fairy_topics t ON t.id = b.fairy_topic_id
+                       WHERE b.id = :bid""", {"bid": book_id})
+    return rows[0] if rows else None
+
+
+def _topic_changeable(n_sentences):
+    """보이는 문장이 n 개인 이야기의 주제를 바꿀 수 있는지 (TOPIC_CHANGE_MAX_SENTENCES)."""
+    return TOPIC_CHANGE_MAX_SENTENCES is None or n_sentences <= TOPIC_CHANGE_MAX_SENTENCES
+
+
+def set_book_topic(user_id, book_id, fairy_topic_id):
+    """동화 책의 주제를 바꾼다 (None = 자유 주제). 책이 없거나 내 책이 아니면 None.
+    일기 책이거나, 이야기를 이미 TOPIC_CHANGE_MAX_SENTENCES 보다 많이 썼으면 BadRequest (→ 400)."""
+    def work(tx):
+        b = tx.query("SELECT id, kind FROM books WHERE id = :bid AND user_id = :uid", {"bid": book_id, "uid": user_id})
+        if not b:
+            return None
+        if b[0]["kind"] != "fairy":
+            raise BadRequest("동화 책만 주제를 고를 수 있어요.")
+        n = tx.query("""SELECT COUNT(*) AS n FROM sentences s JOIN entries e ON e.id = s.entry_id
+                          WHERE e.book_id = :bid AND s.seq IS NOT NULL""", {"bid": book_id})[0]["n"]
+        if not _topic_changeable(n):
+            raise BadRequest("이미 쓰기 시작한 이야기는 주제를 바꿀 수 없어요.")
+        topic = _topic_arg(tx, "fairy", fairy_topic_id)
+        tx.execute("UPDATE books SET fairy_topic_id = :t WHERE id = :bid", {"t": topic, "bid": book_id})
+        return {"book_id": book_id, "topic": _book_topic(tx, book_id), "changed": True}
+
+    return db.run_in_transaction(work)
 
 
 def _entry_info(tx, entry_id):
-    """문장을 저장할 때 필요한 글 정보: 책 종류(diary/fairy) · 일기 날짜 · 하루치 달성 시각."""
-    return tx.query("""SELECT b.kind, e.diary_date, e.day_done_at FROM entries e JOIN books b ON b.id = e.book_id
+    """문장을 저장할 때 필요한 글 정보: 책 종류(diary/fairy) · 책의 동화 주제 · 일기 날짜 · 하루치 달성 시각."""
+    return tx.query("""SELECT b.kind, b.fairy_topic_id, e.diary_date, e.day_done_at FROM entries e JOIN books b ON b.id = e.book_id
                         WHERE e.id = :eid""", {"eid": entry_id})[0]
 
 
@@ -543,7 +583,7 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
     이미 있는 줄의 내용이 바뀌면 덮어쓰지 않고, 그 줄은 '빠진 줄'로 남기고 같은 순서에 새 줄을 넣는다 (기록 보존).
     data: original, revised, attempt_count, invalid_reasons[], has_correction, correction_mode, expression_choice, corrections[],
           reason (바뀐 이유: edit 다시쓰기 / expr 동화 표현 선택. 없으면 원문이 바뀌었는지로 정한다),
-          fairy_topic_id (동화: 지금 고른 주제 번호. 새 문장 · 위에 넣은 문장에만 쓴다. 위 '동화 주제 · 일기 하루치' 참고)
+          (동화 주제는 받지 않는다: 새 문장은 책의 주제, 고친 문장은 옛 줄의 주제. 위 '동화 주제 · 일기 하루치' 참고)
     일기는 저장 뒤 하루치 달성을 확인한다 (_mark_day_done). 결과의 day_done 은 이번 저장으로 처음 달성했는지."""
     if not isinstance(data, dict):
         raise BadRequest("문장 내용이 필요해요.")
@@ -590,8 +630,9 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
         insert_row = """INSERT INTO sentences (entry_id, seq, original, revised, attempt_count, invalid_reasons, has_correction,
                                                correction_mode, expression_choice, written_at, fairy_topic_id)
                         VALUES (:eid, :seq, :o, :r, :n, :ir, :hc, :m, :ec, :now, :tp)"""
-        if cur is None:                              # 새 문장 · 위에 넣은 문장: 화면이 보낸 지금 주제
-            sid = tx.insert(insert_row, {**p, "eid": entry_id, "seq": seq, "tp": _topic_arg(tx, info["kind"], data.get("fairy_topic_id"))})
+        if cur is None:                              # 새 문장 · 위에 넣은 문장: 책의 지금 주제 (일기는 NULL)
+            sid = tx.insert(insert_row, {**p, "eid": entry_id, "seq": seq,
+                                         "tp": info["fairy_topic_id"] if info["kind"] == "fairy" else None})
         else:
             sid = cur["id"]
             if changed:

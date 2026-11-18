@@ -17,10 +17,10 @@
 //     다시쓰기 · 표현 선택으로 문장이 바뀔 때도 서버는 옛 줄을 남긴다. 그래서 저장할 때 바뀐 이유(reason)를 같이 보낸다.
 //     s.sid 는 서버의 문장 번호다 (지울 때 엉뚱한 줄을 지우지 않게 같이 보낸다). 다시쓰기 뒤에는 새 줄이라 번호가 바뀐다.
 //
-//   동화 주제: 문장마다 그때 고른 주제 번호(s.topicId → fairy_topic_id)를 함께 저장한다 (보상 쪽에서 주제별로 셀 수 있게).
-//     주제 목록은 /api/topics (DB 의 fairy_topics). 고른 주제는 다음 문장에도 이어진다.
-//     다시 열면 서버가 알려 주는 지금 주제(entry.topic: 가장 나중에 저장한 문장의 주제)로 되살리고, 없으면 이 브라우저에 기억한 주제를 쓴다.
-//     다시쓰기 · 표현 선택은 서버가 옛 줄의 주제를 물려준다 (여기서 보낸 값은 새 문장 · 위에 넣은 문장에만 쓰인다).
+//   동화 주제: 새 책을 만들 때 고른다 (CreateBookPage → books.fairy_topic_id, 없으면 자유 주제).
+//     글을 열면 서버가 책의 주제(entry.topic: {id, title, prompt})를 알려 주고, 여기서는 보여 주기만 한다.
+//     주제 바꾸기는 entry.topic_change_max 개 문장까지만 (지금은 첫 문장을 쓰기 전에만) → PUT /api/books/{책}/topic.
+//     문장의 주제 번호(sentences.fairy_topic_id)는 서버가 책에서 넣는다 (여기서는 보내지 않는다).
 //
 //   이야기 완성 권유: 동화를 rules.story_done_min_sentences 줄 이상 쓰고 저장하기를 안 누른 채 나가려 하면
 //     화면 안에서 '이야기를 완성할까요?'를 묻는다 (askComplete). 완성 보상은 저장하기를 눌러야 받는다.
@@ -60,8 +60,11 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         shown: '',                // 하이라이트 표시 (【 】로 감싼 글)
         choices: null,            // 개인정보 선택지 { items: [{ text, labels }], chosen: [번호|null] }
         save: { kind: '', text: '', retry: false },   // 저장 표시
-        topic: '',                // 동화: 고른 주제 (제목)
-        topicId: null,            // 동화: 고른 주제의 번호 (fairy_topics.id). 주제 없이 쓰거나 번호를 모르면 null
+        topic: '',                // 동화: 책의 주제 (제목). 빈 글자면 자유 주제
+        topicId: null,            // 동화: 책의 주제 번호 (fairy_topics.id). 자유 주제면 null
+        topicPrompt: '',          // 동화: 주제의 이야기 시작 문장 (예: 누구의 발자국일까?)
+        topicChangeMax: 0,        // 동화: 문장이 이 수 이하일 때만 주제를 바꿀 수 있다 (null = 언제나. 서버 TOPIC_CHANGE_MAX_SENTENCES)
+        topicError: '',           // 동화: 주제를 바꾸지 못했을 때 안내
         topicBox: null,           // 동화: 주제 추천 { pick, others }
         expr: null,               // 동화: 표현 추천 { status: 'loading'|'ready'|'error', base, options, value }
         view: 'write',            // write / all(전체 글)
@@ -87,7 +90,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     let lastSaved = ''          // 마지막으로 저장된 시각 (HH:MM)
     let saveChain = Promise.resolve()
     let shownTopics = []
-    let topicIds = {}           // 주제 제목 → 번호 (/api/topics 의 ids)
+    let topicItems = {}         // 주제 제목 → {id, title, prompt} (/api/topics 의 items)
     let exprResolve = null
     let leaving = false         // 저장하고 다른 화면으로 넘어가는 중
     let disposed = false
@@ -135,7 +138,6 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         invalid_reasons: s.reasons || [], has_correction: !!s.was_corrected, correction_mode: s.mode || null,
         corrections: s.corrections || [], expression_choice: s.expression_choice || null,
         reason: s.reason || null,   // 이미 있던 줄이 바뀐 이유: edit 다시쓰기 / expr 표현 선택 (서버가 옛 줄을 기록으로 남긴다)
-        fairy_topic_id: s.topicId ?? null,   // 동화: 이 문장을 쓸 때 고른 주제 (일기 · 주제 없이 쓴 문장은 null)
     })
 
     async function saveOne(s) {
@@ -267,7 +269,6 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         id: nextId++, sid: x.id, original: x.original, revised: x.revised, retry_count: Math.max(0, (x.attempt_count || 1) - 1),
         was_corrected: !!x.has_correction, corrections: x.corrections || [], compliment: null, mode: x.correction_mode,
         reasons: x.invalid_reasons || [], expression_choice: x.expression_choice || null, saveState: 'saved',
-        topicId: x.fairy_topic_id ?? null,
     })
 
     // ── 질문 ──
@@ -286,25 +287,19 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     }
 
     // ── 동화 주제 ──
-    // 고른 주제는 문장과 함께 서버에 남고(fairy_topic_id), 아직 문장이 없을 때를 위해 이 브라우저에도 기억한다.
-    // 브라우저에는 {"title", "id"} 를 적는다 (예전에 제목 글자만 적어 둔 것도 읽는다: 번호는 null).
-    const topicKey = () => `fairy-topic-${book}`
-    function loadTopic() {
-        try {
-            const v = localStorage.getItem(topicKey()) || ''
-            if (!v.startsWith('{')) return { title: v, id: null }
-            const o = JSON.parse(v)
-            return { title: String(o.title || ''), id: Number.isInteger(o.id) ? o.id : null }
-        } catch { return { title: '', id: null } }
+    // 주제는 책에 있다 (새 책 만들기에서 고름). 이 화면에서는 첫 문장을 쓰기 전에만 바꿀 수 있다 (topicChangeable).
+    function topicChangeable() {
+        if (st.kind !== 'fairy' || !st.entry) return false
+        return st.topicChangeMax === null || written().length <= st.topicChangeMax
     }
-    function storeTopic(title, id) {
-        try {
-            if (title) localStorage.setItem(topicKey(), JSON.stringify({ title, id }))
-            else localStorage.removeItem(topicKey())
-        } catch { /* 무시 */ }
+    function setTopic(t) {
+        st.topic = t ? t.title : ''
+        st.topicId = t && Number.isInteger(t.id) ? t.id : null
+        st.topicPrompt = t && t.prompt ? t.prompt : ''
     }
 
     async function openTopics(more) {
+        if (!topicChangeable()) return
         if (!more) shownTopics = []
         let r
         try {
@@ -313,22 +308,43 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             authFailed(e)
             return                                          // 추천을 못 받아도 글쓰기는 그대로 할 수 있다
         }
-        topicIds = { ...topicIds, ...(r.ids || {}) }
+        for (const t of r.items || []) topicItems[t.title] = t
+        st.topicError = ''
         shownTopics = shownTopics.concat([r.pick], r.others)
         track(more ? 'topic_more' : 'topic_open', { pick: r.pick, others: r.others })
         st.topicBox = { pick: r.pick, others: r.others }
         emit()
     }
 
-    function chooseTopic(v) {
-        st.topic = v || ''
-        st.topicId = v && Number.isInteger(topicIds[v]) ? topicIds[v] : null   // 다음에 쓰는 문장부터 이 주제로 저장된다
-        storeTopic(st.topic, st.topicId)
+    // 주제 바꾸기 (v: 주제 이름, 빈 글자 = 내가 정할래요). 책에 저장한 뒤 화면에 반영한다.
+    // 이미 첫 문장을 썼으면 서버가 400 으로 막는다 (그 사이 다른 기기에서 썼을 때).
+    async function chooseTopic(v) {
+        const t = v ? (topicItems[v] || { id: null, title: v, prompt: null }) : null
+        if (dbMode) {
+            let r
+            try {
+                r = await api(`/api/books/${encodeURIComponent(book)}/topic`, { method: 'PUT', body: { fairy_topic_id: t && Number.isInteger(t.id) ? t.id : null } })
+            } catch (e) {
+                if (authFailed(e)) return
+                st.topicError = e.message || '주제를 바꾸지 못했어요. 다시 해 볼까요?'
+                emit()
+                return
+            }
+            setTopic(r.topic)
+        } else {
+            setTopic(t)
+        }
         track(v ? 'topic_pick' : 'topic_skip', v ? { topic: v, topic_id: st.topicId, shown: shownTopics.length } : { shown: shownTopics.length })
         st.topicBox = null
+        st.topicError = ''
         focus()
         emit()
         loadQuestion()
+    }
+    function closeTopics() {
+        st.topicBox = null
+        st.topicError = ''
+        emit()
     }
 
     // ── 열기 ──
@@ -356,13 +372,9 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             st.loading = false
             st.busy = false
             restoreDraft(r.entry)
-            if (st.kind === 'fairy') {                      // 동화: 아직 한 줄도 안 썼고 주제도 없으면 주제부터 추천한다
-                // 지금 주제: 서버가 아는 주제(마지막에 저장한 문장의 주제)가 먼저, 없으면 이 브라우저에 기억한 주제
-                const t = r.entry.topic && r.entry.topic.title ? { title: r.entry.topic.title, id: r.entry.topic.id } : loadTopic()
-                st.topic = t.title
-                st.topicId = t.id
-                if (t.title && t.id !== null) topicIds = { ...topicIds, [t.title]: t.id }
-                if (!st.topic && !st.sentences.length) openTopics(false)
+            if (st.kind === 'fairy') {                      // 동화: 책의 주제 (새 책 만들기에서 고름. 없으면 자유 주제)
+                setTopic(r.entry.topic || null)
+                st.topicChangeMax = r.entry.topic_change_max === undefined ? 0 : r.entry.topic_change_max
             }
             track('page_open', { mode: 'db', book, date, entry: st.entry.id, kind: st.kind, status: st.entry.status, sentences: st.sentences.length })
             focus()
@@ -607,7 +619,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             let s = st.sentences.find((x) => x.id === st.editingId)
             if (s) s.reason = 'edit'                        // 다시쓰기: 서버가 옛 줄을 기록으로 남긴다
             if (!s) {                                       // 새 줄: 맨 뒤에 붙이거나, 고른 자리에 끼워 넣는다
-                s = { id: nextId++, topicId: st.kind === 'fairy' ? st.topicId : null }   // 지금 고른 주제로 저장한다
+                s = { id: nextId++ }
                 if (st.insertAt !== null && st.insertAt < st.sentences.length) { s.inserted = true; st.sentences.splice(st.insertAt, 0, s) }
                 else st.sentences.push(s)
             }
@@ -891,7 +903,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         boot, submit, choose, setBox(v) { st.box = v; emit(); syncDraft(false) }, flushDraft,
         startEdit, cancelEdit, startInsert, moveSentence, retrySaves,
         askDelete, cancelDelete, confirmDelete, undoDelete,
-        openTopics, chooseTopic, pickExpr, confirmExpr, retryExpr, skipExpr,
+        openTopics, chooseTopic, closeTopics, topicChangeable, pickExpr, confirmExpr, retryExpr, skipExpr,
         toggleFix(id, open) { const s = st.sentences.find((x) => x.id === id); if (s && !!s.openFix !== open) { s.openFix = open; emit() } },
         finish, backToWrite, restart, saveStory, unsavedWork,
         askComplete, closeComplete, completeNow,
