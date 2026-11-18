@@ -4,6 +4,7 @@ import NicknamePage from "./NicknamePage.jsx";      // 별명설정 페이지
 import HomeListPage from "./HomeListPage.jsx";      // 목장(메인) 페이지
 import CreateBookPage from "./CreateBookPage.jsx";  // 새 책 만들기 페이지
 import PostListPage from "./PostListPage.jsx";      // 글 리스트 페이지
+import DashboardPage from "./DashboardPage.jsx";    // 대시보드 페이지
 import PostDetailPage from "./PostDetailPage.jsx";  // 작성한 글 조회 페이지
 import WritePage from "./WritePage.jsx";            // 글쓰기 페이지
 
@@ -138,6 +139,9 @@ export default function App() {
                         setPage("postList");
                     }}
 
+                    // 대시보드 버튼을 누르면 대시보드로 전환
+                    onOpenDashboard={() => setPage("dashboard")}
+
                     // 목장 조회 중 인증 오류가 나면 공통 함수 실행
                     onAuthError={handleAuthError}
                 />
@@ -158,7 +162,15 @@ export default function App() {
                 />
             )}
 
-            {/* 5. 글 리스트 화면 */}
+            {/* 5. 대시보드 화면 */}
+            {page === "dashboard" && (
+                <DashboardPage
+                    onBack={() => setPage("home")}
+                    onAuthError={handleAuthError}
+                />
+            )}
+
+            {/* 6. 글 리스트 화면 */}
             {page === "postList" && (
                 <PostListPage
                     bookId={bookId}
@@ -182,7 +194,7 @@ export default function App() {
                 />
             )}
 
-            {/* 6. 작성한 글 조회 화면 */}
+            {/* 7. 작성한 글 조회 화면 */}
             {page === "postDetail" && (
                 <PostDetailPage
                     entryId={entryId}
@@ -205,7 +217,7 @@ export default function App() {
                 />
             )}
 
-            {/* 7. 글쓰기 화면 */}
+            {/* 8. 글쓰기 화면 */}
             {page === "write" && (
                 <WritePage
                     // key: 책이나 날짜가 바뀌면 화면을 새로 만들어 그 글을 다시 불러온다.
