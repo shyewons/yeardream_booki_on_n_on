@@ -4,11 +4,13 @@
   GET /api/books/{book_id}/entries?page=1         책 안의 글 목록 (일기: 날짜별, 한 쪽 글 수는 PAGE_SIZE_ENTRIES)
   GET /api/entries/{entry_id}                     글 하나 (문장 + 교정 항목)
   GET /api/books/{book_id}/diary/{YYYY-MM-DD}     일기를 날짜로 찾기 (하루 = 글 하나)
+  GET /api/topics?exclude=고양이,곰               동화 주제 추천 (fairy_topics 표에서 고른다)  → {"pick", "others", "ids": {제목: 번호}}
 
   쓰기
   POST /api/books                                 책 만들기('새로운 이야기')  body: {"kind": "diary"|"fairy", "title": "몽실"}
   POST /api/books/{book_id}/entries               글 열기/만들기  body: {"date": "2026-11-12"} (일기, 생략하면 오늘) → 글 + 쓴 문장
   PUT  /api/entries/{entry_id}/sentences/{seq}    문장 저장(임시저장). 같은 seq 면 덮어쓰기, 끝 다음 순서면 새로 붙이기
+                                                  동화는 body 에 fairy_topic_id(지금 주제)를 함께 보낸다. 일기는 저장 뒤 하루치 달성을 확인한다
   POST /api/entries/{entry_id}/sentences/{seq}/insert   문장 끼워 넣기 (body 는 문장 저장과 같다)
   POST /api/entries/{entry_id}/sentences/{seq}/move     문장 순서 바꾸기  body: {"to": 3}
   DELETE /api/entries/{entry_id}/sentences/{seq}?sentence_id=123   문장 지우기 (DB 에는 '빠진 줄'로 남는다)
@@ -27,6 +29,7 @@ import auth
 import books_repo as repo
 import db
 import devlog
+import writing_api
 
 router = APIRouter(prefix="/api")
 
@@ -60,7 +63,7 @@ def _act(name, result, **ids):
     """저장 동작 하나를 logs/action_날짜.log 에 적고 result 를 그대로 돌려준다. 글 내용은 적지 않고 번호 · 상태 · 개수만 적는다."""
     brief = {}
     if isinstance(result, dict):
-        for key in ("id", "kind", "seq", "changed", "moved", "status", "saved", "chars", "mode", "reason", "deleted", "restored", "sentence_id"):
+        for key in ("id", "kind", "seq", "changed", "moved", "status", "saved", "chars", "mode", "reason", "deleted", "restored", "sentence_id", "day_done"):
             if isinstance(result.get(key), (str, int, bool)):
                 brief[key] = result[key]
         entry = result.get("entry")
@@ -100,6 +103,17 @@ def entry(entry_id: int):
 def diary_by_date(book_id: int, day: datetime.date):
     uid = _user()
     return _found(_guard(repo.get_entry_by_date, uid, book_id, day.isoformat()), "그 날짜의 일기")
+
+
+@router.get("/topics")
+def topics(exclude: str = ""):
+    """동화 주제 추천. 주제 목록은 fairy_topics 표(켜진 것)에서 읽고, 고르는 방법은 writing_api.get_topics 와 같다.
+    표가 비어 있으면 writing_api 의 FAIRY_TOPICS 로 고른다 (그때는 ids 가 비어 있어 문장에 주제 번호가 남지 않는다)."""
+    _user()
+    rows = _guard(repo.list_topics)
+    ids = {r["title"]: r["id"] for r in rows}
+    pool = list(ids) or None
+    return {**writing_api.get_topics([x for x in exclude.split(",") if x], pool=pool), "ids": ids}
 
 
 # ── 쓰기 ────────────────────────────────────────────────────────────────────

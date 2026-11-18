@@ -4,7 +4,7 @@
 
 주소 (main.py 가 app.include_router(writing_api.router) 로 붙인다)
   GET  /question   입력칸 위 안내 질문 (일기/동화, 동화는 고른 주제 반영)
-  GET  /topics     동화 주제 추천
+  GET  /topics     동화 주제 추천 (코드 안 목록 FAIRY_TOPICS. 화면은 DB 의 주제를 쓰는 /api/topics 를 부른다)
   POST /validate   유효성 검사만 (diary_pipeline/input_validation.py). 통과하면 route == "correction"
   POST /correct    교정 단계(diary_pipeline/nodes)를 한 단계씩 실행하고, 단계가 끝날 때마다 결과를 한 줄(NDJSON)씩 흘려보냄
   POST /suggest    동화 표현 추천. 모델을 켜면 diary_pipeline/explain.py 의 표현 생성(Kanana), 끄면 demo_nodes.py 의 임시 낱말표
@@ -111,7 +111,8 @@ DEMO_SUGGEST_POINT = "(임시 예시) 낱말 하나를 비슷한 말로 바꿔 �
 # =====================================================================
 # 입력칸 위에 보여 줄 안내 질문
 # =====================================================================
-# 동화 주제 (아이가 관심 가질 만한 동물 · 사물 · 상상 속 친구). 자유롭게 더하고 빼면 된다.
+# 동화 주제 (아이가 관심 가질 만한 동물 · 사물 · 상상 속 친구).
+# 실제 화면은 DB 의 fairy_topics 표를 쓴다 (/api/topics). 이 목록은 표가 비어 있을 때 대신 쓰는 예비이고, 처음 표를 채운 값과 같다.
 FAIRY_TOPICS = [
     "고양이", "강아지", "토끼", "공룡", "용", "곰", "펭귄", "고래", "다람쥐", "도깨비",
     "로봇", "우주선", "마법 지팡이", "보물 상자", "말하는 나무", "구름", "달", "무지개", "눈사람", "장난감 기차",
@@ -132,11 +133,14 @@ FAIRY_NEXT = [
 ]
 
 
-def get_topics(exclude=(), others: int = 3) -> Dict[str, Any]:
-    """추천 주제 하나(pick)와 다른 주제 몇 개(others). exclude 에 적힌 주제는 되도록 빼고 고른다(다 빼면 처음부터 다시)."""
-    pool = [x for x in FAIRY_TOPICS if x not in set(exclude)]
+def get_topics(exclude=(), others: int = 3, pool=None) -> Dict[str, Any]:
+    """추천 주제 하나(pick)와 다른 주제 몇 개(others). exclude 에 적힌 주제는 되도록 빼고 고른다(다 빼면 처음부터 다시).
+    pool 을 주면 그 목록에서 고른다 (books_api 의 /api/topics 가 DB 의 fairy_topics 를 넘긴다). 없으면 FAIRY_TOPICS."""
+    every = list(pool) if pool else list(FAIRY_TOPICS)
+    others = min(others, len(every) - 1)
+    pool = [x for x in every if x not in set(exclude)]
     if len(pool) < others + 1:
-        pool = list(FAIRY_TOPICS)
+        pool = every
     picked = random.sample(pool, others + 1)
     return {"pick": picked[0], "others": picked[1:]}
 

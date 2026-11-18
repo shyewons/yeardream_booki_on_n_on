@@ -1,6 +1,8 @@
 -- 글쓰기 파트 ERD 초안 (MySQL 8 / DBeaver)
 -- 구조: users 1:N books 1:N entries 1:N sentences 1:N corrections
 -- 이름은 초안이라 바뀔 수 있음. 바꾸면 이 파일만 고쳐서 다시 실행.
+-- 보상 쪽 표(clothes, user_clothes, user_equipped_clothes, reward_claims)는 팀원이 DB 에 직접 만들었고 여기에는 없다.
+-- fairy_topics 는 sentences 가 참조해서 아래에 적어 두었다 (칸은 DB 와 같게. 정확한 정의는 SHOW CREATE TABLE fairy_topics 로 확인).
 -- 시각 규칙: DB 서버는 UTC라서 *_at 값은 앱이 한국 시간(Asia/Seoul)으로 직접 만들어 넣는다.
 --            (DBeaver에서 직접 넣을 땐 먼저 SET time_zone = '+09:00'; 를 실행)
 
@@ -12,6 +14,7 @@ DROP TABLE IF EXISTS sentences;
 DROP TABLE IF EXISTS entries;
 DROP TABLE IF EXISTS books;
 DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS fairy_topics;
 
 -- 사용자 (별명 + 유저구분번호; 로그인 없음)
 CREATE TABLE users (
@@ -54,10 +57,26 @@ CREATE TABLE entries (
   checked      TINYINT NOT NULL DEFAULT 0 COMMENT '확인여부 (선생님/부모님 확인)',
   check_log    JSON NULL COMMENT '확인내역 (list)',
   checked_at   DATETIME NULL COMMENT '확인날짜 (< edited_at 이면 확인 후 수정됨)',
+  day_done_at  DATETIME NULL COMMENT '일기 하루치(기준 문장 수) 처음 달성 시각. 지난 날짜는 기준 일수 안에 채웠을 때만 (reward_rules.py)',
   PRIMARY KEY (id),
   UNIQUE KEY uq_entries_book_date (book_id, diary_date),  -- 같은 책, 같은 날짜의 글은 하나만 (NULL은 여러 개 가능)
   CONSTRAINT fk_entries_book FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='글';
+
+-- 동화 주제 (주제 추천 /api/topics 가 켜진 것만 읽는다. 문장마다 고른 주제 번호가 남는다)
+CREATE TABLE fairy_topics (
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  title       VARCHAR(50) NOT NULL COMMENT '주제 이름 (예: 고양이)',
+  is_active   TINYINT NOT NULL DEFAULT 1 COMMENT '추천에 쓰는지 (0 이면 추천에서 빠진다. 이미 쓴 문장의 번호는 그대로)',
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='동화 주제 목록';
+
+INSERT INTO fairy_topics (title, is_active, created_at) VALUES
+('고양이',1,NOW()),('강아지',1,NOW()),('토끼',1,NOW()),('공룡',1,NOW()),('용',1,NOW()),
+('곰',1,NOW()),('펭귄',1,NOW()),('고래',1,NOW()),('다람쥐',1,NOW()),('도깨비',1,NOW()),
+('로봇',1,NOW()),('우주선',1,NOW()),('마법 지팡이',1,NOW()),('보물 상자',1,NOW()),('말하는 나무',1,NOW()),
+('구름',1,NOW()),('달',1,NOW()),('무지개',1,NOW()),('눈사람',1,NOW()),('장난감 기차',1,NOW());
 
 -- 문장 (유효성 검사 + 최종 결과)
 CREATE TABLE sentences (
@@ -74,9 +93,12 @@ CREATE TABLE sentences (
   written_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '작성날짜',
   ended_at         DATETIME NULL COMMENT '화면에서 빠진 시각 (다시쓰기 · 지우기 · 표현 선택으로 바뀐 때). 보이는 줄은 NULL',
   end_reason       VARCHAR(10) NULL COMMENT '빠진 이유: edit 다시쓰기 / delete 지우기 / expr 동화 표현 선택',
+  fairy_topic_id   BIGINT UNSIGNED NULL COMMENT '이 문장을 쓸 때 고른 동화 주제. 일기 · 자유 주제는 NULL',
   PRIMARY KEY (id),
   UNIQUE KEY uq_sentences_order (entry_id, seq),   -- 보이는 줄의 순서는 겹치지 않는다 (빠진 줄의 NULL 은 여러 개 가능)
-  CONSTRAINT fk_sentences_entry FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
+  KEY idx_sentences_topic (fairy_topic_id),
+  CONSTRAINT fk_sentences_entry FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE,
+  CONSTRAINT fk_sentences_topic FOREIGN KEY (fairy_topic_id) REFERENCES fairy_topics (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='문장';
 
 -- 교정 항목 (corrections[] 한 줄이 한 행)

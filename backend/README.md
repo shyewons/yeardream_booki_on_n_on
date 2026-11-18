@@ -28,7 +28,9 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `auth.py` | 요청 헤더 `X-User-Token`으로 지금 사용자 정하기 (토큰은 해시로만 저장) |
 | `users_api.py` · `users_repo.py` | `/api/users` 별명 만들기·토큰 확인, 별명 검사 |
 | `books_api.py` | `/api/...` 주소 (책·글 목록, 글 열기, 문장 저장·끼워 넣기·순서 바꾸기, 이야기 저장) |
-| `books_repo.py` | 위 주소가 쓰는 DB 쿼리. 지금 사용자(토큰 주인 또는 더미), 쪽당 개수, 시간(KST) 규칙 |
+| `books_repo.py` | 위 주소가 쓰는 DB 쿼리. 지금 사용자(토큰 주인 또는 더미), 쪽당 개수, 시간(KST) 규칙, 문장마다 동화 주제 저장, 일기 하루치 달성(`day_done_at`) |
+| `reward_rules.py` | 보상 기준 숫자 (일기 하루 3문장 · 지난 날짜 3일 · 주 5일, 동화 한 페이지 10문장 · 완성 10문장) |
+| `progress_repo.py` | 보상 코드가 부르는 세는 함수 (주간 하루치, 동화 페이지 · 완성, 주제별 문장 수). 판단 · 받기는 하지 않는다 |
 | `db.py` | `.env` 읽기, DB 접속 |
 | `writing_api.py` | `/question` `/topics` `/validate` `/correct` `/suggest` (예전 시연용 `app.py`) |
 | `demo_nodes.py` | 모델 없이 돌릴 때 쓰는 임시 노드, 동화 표현 추천 임시 낱말표 |
@@ -49,12 +51,13 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `GET /api/entries/{글}` | 글 하나(문장·고친 곳·이전/다음 글 번호) |
 | `GET /api/books/{책}/diary/{날짜}` | 그 날짜의 일기 |
 | `POST /api/books/{책}/entries` | 글 열기(없으면 만들기) `{"date": "2026-11-16"}`, 동화는 생략 |
-| `PUT /api/entries/{글}/sentences/{번호}` | 문장 저장(같은 번호는 덮어쓰기) |
+| `PUT /api/entries/{글}/sentences/{번호}` | 문장 저장(같은 번호는 덮어쓰기). 동화는 `fairy_topic_id`(지금 주제)를 함께. 일기는 3문장째에 `day_done: true` |
 | `POST /api/entries/{글}/sentences/{번호}/insert` | 문장 끼워 넣기 |
 | `POST /api/entries/{글}/sentences/{번호}/move` | 문장 순서 바꾸기 `{"to": 3}` |
 | `POST /api/entries/{글}/complete` | 이야기 저장하기(완성) |
+| `GET /api/topics?exclude=고양이,용` | 동화 주제 추천 (DB `fairy_topics` 의 켜진 주제) → `{"pick", "others", "ids": {제목: 번호}}` |
 | `GET /question?passed=0&kind=fairy&topic=고양이` | 입력칸 위 질문 |
-| `GET /topics?exclude=고양이,용` | 동화 주제 추천 |
+| `GET /topics?exclude=고양이,용` | 동화 주제 추천 (코드 안 목록. 화면은 `/api/topics` 를 쓴다) |
 | `POST /validate` | 유효성 검사 `{"user_input", "validation_attempt", "previous_sentences", "choice_picks", "kind"}` |
 | `POST /correct` | 교정(단계별 NDJSON) `{"original_sentence"}` |
 | `POST /suggest` | 동화 표현 추천(임시) `{"sentence"}` |
@@ -67,7 +70,9 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 
 - 쪽당 개수, 더미 별명: `.env` 또는 `books_repo.py` 위쪽
 - 유효성 기준(일기/동화): `diary_pipeline/input_validation.py` 맨 위 `KIND_RULES`, `KIND_MESSAGES`
-- 동화 주제·질문 문구: `writing_api.py`의 `FAIRY_TOPICS`, `FAIRY_FIRST`, `FAIRY_NEXT`
+- 동화 주제: DB `fairy_topics` 표 (`is_active = 0` 이면 추천에서 빠진다). 표가 비면 `writing_api.py`의 `FAIRY_TOPICS`
+- 동화 질문 문구: `writing_api.py`의 `FAIRY_FIRST`, `FAIRY_NEXT`
+- 보상 기준 숫자: `reward_rules.py`
 - RAG 벡터 DB 위치: `DIARY_DB_PATH` (예: `../analysis/chroma_db`)
 - 개발용 로그: 아래 '로그' 참고
 

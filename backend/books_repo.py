@@ -10,6 +10,7 @@ import os
 
 import auth
 import db
+import reward_rules as rules
 
 # 한 쪽에 몇 개를 줄지 (환경변수/.env 로 바꿀 수 있다)
 PAGE_SIZE_BOOKS = int(os.environ.get("PAGE_SIZE_BOOKS", 6))        # 목장(책 목록): 한 쪽 책 수 (화면은 한 줄에 3권)
@@ -193,7 +194,7 @@ def get_entry(user_id, entry_id):
     """글이 없거나 내 글이 아니면 None. 문장은 순서대로, 교정 항목은 파이프라인 응답과 같은 이름으로 붙인다."""
     rows = db.query(
         """SELECT e.id, e.book_id, e.diary_date, e.status, e.draft_text, e.draft_saved_at, e.draft_mode, e.draft_seq,
-                  e.saved_at, e.edited_at, e.created_at,
+                  e.saved_at, e.edited_at, e.created_at, e.day_done_at,
                   b.kind AS book_kind, b.title AS book_title
              FROM entries e
              JOIN books b ON b.id = e.book_id
@@ -206,7 +207,7 @@ def get_entry(user_id, entry_id):
 
     sents = db.query(
         """SELECT id, seq, original, revised, attempt_count, invalid_reasons,
-                  has_correction, correction_mode, expression_choice, written_at
+                  has_correction, correction_mode, expression_choice, written_at, fairy_topic_id
              FROM sentences
             WHERE entry_id = :eid AND seq IS NOT NULL
             ORDER BY seq""",
@@ -246,8 +247,18 @@ def get_entry(user_id, entry_id):
         "correction_mode": s["correction_mode"],
         "expression_choice": _json(s["expression_choice"]),
         "written_at": s["written_at"],
+        "fairy_topic_id": s["fairy_topic_id"],             # 이 문장을 쓸 때 고른 동화 주제 (일기 · 자유 주제는 None)
         "corrections": by_sentence.get(s["id"], []),
     } for s in sents]
+
+    # 지금 주제: 가장 나중에 저장된 보이는 문장의 주제 (화면이 다른 기기에서 열어도 주제를 이어 가게).
+    # 그 문장이 주제 없이 쓴 것이면 None → 화면은 이 브라우저에 기억해 둔 주제를 쓴다
+    topic = None
+    if sents:
+        last = max(sents, key=lambda x: x["id"])
+        if last["fairy_topic_id"] is not None:
+            t = db.query("SELECT id, title FROM fairy_topics WHERE id = :t", {"t": last["fairy_topic_id"]})
+            topic = t[0] if t else None
 
     return {
         "nav": _neighbors(e),
@@ -255,8 +266,11 @@ def get_entry(user_id, entry_id):
         "entry": {"id": e["id"], "book_id": e["book_id"], "date": e["diary_date"], "status": e["status"],
                   "draft_text": e["draft_text"], "draft_saved_at": e["draft_saved_at"],
                   "draft_mode": e["draft_mode"], "draft_seq": e["draft_seq"],     # 쓰던 문장이 어느 자리의 것인지 (save_draft)
-                  "saved_at": e["saved_at"], "edited_at": e["edited_at"], "created_at": e["created_at"]},
+                  "saved_at": e["saved_at"], "edited_at": e["edited_at"], "created_at": e["created_at"],
+                  "day_done_at": e["day_done_at"],                                  # 일기 하루치를 처음 채운 시각 (없으면 None)
+                  "topic": topic},                                                  # 동화: 지금 주제 {id, title} 또는 None
         "sentences": sentences,
+        "rules": rules.public(),                                                    # 보상 기준 숫자 (reward_rules.py)
     }
 
 
@@ -430,6 +444,63 @@ def _clean_text(v, name):
     return v
 
 
+# ── 동화 주제 · 일기 하루치 ─────────────────────────────────────────────────
+# 동화 주제는 문장마다 남긴다 (sentences.fairy_topic_id). 주제를 바꿔 가며 써도 문장별로 그때의 주제가 남아,
+# 보상 쪽에서 '마지막 주제'든 '주제별 문장 수'든 나중에 정해 셀 수 있다.
+#   새 문장 · 위에 넣은 문장   화면이 보낸 지금 주제 (없으면 NULL = 주제 없이 씀)
+#   다시쓰기 · 표현 선택       같은 문장을 고친 것이라 옛 줄의 주제를 그대로 물려받는다 (화면이 보낸 값은 쓰지 않는다)
+# 일기 하루치는 보이는 문장이 reward_rules.DIARY_DAY_SENTENCES 개가 되는 순간 entries.day_done_at 에 한 번 적는다.
+#   문장은 검사 · 교정을 통과해야 저장되므로 '검사를 통과한 문장'만 센다 (임시저장 draft_text 는 세지 않는다).
+
+def list_topics():
+    """켜져 있는 동화 주제 [{id, title}] (fairy_topics.is_active = 1). 하나도 없으면 빈 목록."""
+    return db.query("SELECT id, title FROM fairy_topics WHERE is_active = 1 ORDER BY id")
+
+
+def _entry_info(tx, entry_id):
+    """문장을 저장할 때 필요한 글 정보: 책 종류(diary/fairy) · 일기 날짜 · 하루치 달성 시각."""
+    return tx.query("""SELECT b.kind, e.diary_date, e.day_done_at FROM entries e JOIN books b ON b.id = e.book_id
+                        WHERE e.id = :eid""", {"eid": entry_id})[0]
+
+
+def _topic_arg(tx, kind, v):
+    """화면이 보낸 주제 번호를 확인한다. 일기거나 비어 있으면 None. 없는 주제 · 꺼진 주제면 BadRequest (→ 400)."""
+    if kind != "fairy" or v in (None, ""):
+        return None
+    tid = _opt_int(v)
+    if tid is None or not tx.query("SELECT id FROM fairy_topics WHERE id = :t AND is_active = 1", {"t": tid}):
+        raise BadRequest("고른 주제를 찾을 수 없어요. 주제를 다시 골라 주세요.")
+    return tid
+
+
+def _as_date(v):
+    """DB 의 날짜 값(date · datetime · 'YYYY-MM-DD' 글자)을 date 로. 없으면 None."""
+    if v is None:
+        return None
+    if isinstance(v, datetime.datetime):
+        return v.date()
+    if isinstance(v, datetime.date):
+        return v
+    return datetime.date.fromisoformat(str(v)[:10])
+
+
+def _mark_day_done(tx, entry_id, info, now):
+    """일기 하루치 달성을 적는다. 이번에 적었으면 그 시각, 아니면 None.
+    이미 적혀 있으면 그대로 둔다 (나중에 지우거나 고쳐서 문장이 줄어도 달성은 남는다).
+    지난 날짜는 일기 날짜 + DIARY_LATE_DAYS 일까지만 (예: 15일 일기는 18일까지). 앞으로 올 날짜는 open_entry 가 이미 막는다."""
+    if info["kind"] != "diary" or info["day_done_at"] is not None:
+        return None
+    day = _as_date(info["diary_date"])
+    today = today_kst()
+    if day is None or day > today or (today - day).days > rules.DIARY_LATE_DAYS:
+        return None
+    n = tx.query("SELECT COUNT(*) AS n FROM sentences WHERE entry_id = :eid AND seq IS NOT NULL", {"eid": entry_id})[0]["n"]
+    if n < rules.DIARY_DAY_SENTENCES:
+        return None
+    tx.execute("UPDATE entries SET day_done_at = :now WHERE id = :eid AND day_done_at IS NULL", {"now": now, "eid": entry_id})
+    return now
+
+
 # 순서 번호를 바꿀 때: 같은 글 안에서 번호가 겹치면 안 되므로(UNIQUE) 두 번에 나눠 옮긴다.
 #   1) 옮길 문장들의 번호를 음수로 뒤집어 잠깐 비켜 두고 (양수 번호와는 절대 겹치지 않는다. seq 칸은 음수도 담는 INT)
 #   2) 새 번호를 매긴다.
@@ -471,7 +542,9 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
     글이 없거나 내 글이 아니면 None. 내용(원문·최종문장)이 그대로면 아무것도 바꾸지 않는다(같은 요청을 다시 보내도 안전).
     이미 있는 줄의 내용이 바뀌면 덮어쓰지 않고, 그 줄은 '빠진 줄'로 남기고 같은 순서에 새 줄을 넣는다 (기록 보존).
     data: original, revised, attempt_count, invalid_reasons[], has_correction, correction_mode, expression_choice, corrections[],
-          reason (바뀐 이유: edit 다시쓰기 / expr 동화 표현 선택. 없으면 원문이 바뀌었는지로 정한다)"""
+          reason (바뀐 이유: edit 다시쓰기 / expr 동화 표현 선택. 없으면 원문이 바뀌었는지로 정한다),
+          fairy_topic_id (동화: 지금 고른 주제 번호. 새 문장 · 위에 넣은 문장에만 쓴다. 위 '동화 주제 · 일기 하루치' 참고)
+    일기는 저장 뒤 하루치 달성을 확인한다 (_mark_day_done). 결과의 day_done 은 이번 저장으로 처음 달성했는지."""
     if not isinstance(data, dict):
         raise BadRequest("문장 내용이 필요해요.")
     if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:
@@ -496,7 +569,8 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
     def work(tx):
         if not _own_entry(tx, user_id, entry_id):
             return None
-        rows = tx.query("SELECT id, seq, original, revised FROM sentences WHERE entry_id = :eid AND seq IS NOT NULL ORDER BY seq",
+        info = _entry_info(tx, entry_id)
+        rows = tx.query("SELECT id, seq, original, revised, fairy_topic_id FROM sentences WHERE entry_id = :eid AND seq IS NOT NULL ORDER BY seq",
                         {"eid": entry_id})
         if seq > (rows[-1]["seq"] if rows else 0) + 1:
             raise BadRequest("앞의 문장이 아직 저장되지 않았어요.")
@@ -514,10 +588,10 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
         p = {"o": original, "r": revised, "n": attempt, "ir": json.dumps(reasons, ensure_ascii=False),
              "hc": has_corr, "m": mode, "ec": choice, "now": now}
         insert_row = """INSERT INTO sentences (entry_id, seq, original, revised, attempt_count, invalid_reasons, has_correction,
-                                               correction_mode, expression_choice, written_at)
-                        VALUES (:eid, :seq, :o, :r, :n, :ir, :hc, :m, :ec, :now)"""
-        if cur is None:
-            sid = tx.insert(insert_row, {**p, "eid": entry_id, "seq": seq})
+                                               correction_mode, expression_choice, written_at, fairy_topic_id)
+                        VALUES (:eid, :seq, :o, :r, :n, :ir, :hc, :m, :ec, :now, :tp)"""
+        if cur is None:                              # 새 문장 · 위에 넣은 문장: 화면이 보낸 지금 주제
+            sid = tx.insert(insert_row, {**p, "eid": entry_id, "seq": seq, "tp": _topic_arg(tx, info["kind"], data.get("fairy_topic_id"))})
         else:
             sid = cur["id"]
             if changed:
@@ -526,7 +600,7 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
                 why = reason or ("edit" if cur["original"] != original else "expr")
                 tx.execute("UPDATE sentences SET seq = NULL, ended_at = :now, end_reason = :why WHERE id = :sid",
                            {"now": now, "why": why, "sid": sid})
-                sid = tx.insert(insert_row, {**p, "eid": entry_id, "seq": seq})
+                sid = tx.insert(insert_row, {**p, "eid": entry_id, "seq": seq, "tp": cur["fairy_topic_id"]})   # 주제는 옛 줄 그대로
             elif choice is not None:                 # 문장은 그대로인데 표현 선택 기록만 온 경우 (예: '원래 문장 그대로'): 기록만 남긴다
                 tx.execute("UPDATE sentences SET expression_choice = :ec WHERE id = :sid", {"ec": choice, "sid": sid})
         if changed:
@@ -534,8 +608,10 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
             tx.execute("""UPDATE entries SET status = 'writing', edited_at = :now,
                                  draft_text = NULL, draft_saved_at = NULL, draft_mode = NULL, draft_seq = NULL
                            WHERE id = :eid""", {"now": now, "eid": entry_id})
-        entry = tx.query("SELECT id, status, edited_at, saved_at FROM entries WHERE id = :eid", {"eid": entry_id})[0]
-        return {"sentence_id": sid, "seq": seq, "changed": changed, "reason": why, "saved_at": now, "entry": entry}
+        done_now = _mark_day_done(tx, entry_id, info, now) if changed else None
+        entry = tx.query("SELECT id, status, edited_at, saved_at, day_done_at FROM entries WHERE id = :eid", {"eid": entry_id})[0]
+        return {"sentence_id": sid, "seq": seq, "changed": changed, "reason": why, "saved_at": now, "entry": entry,
+                "day_done": done_now is not None}
 
     return db.run_in_transaction(work)
 
@@ -622,7 +698,9 @@ def restore_sentence(user_id, entry_id, sentence_id, seq):
             dseq += 1                                # 쓰던 자리 앞에 한 줄 생겼다 → 한 칸 민다
         tx.execute("UPDATE entries SET status = 'writing', edited_at = :now, draft_seq = :s WHERE id = :eid",
                    {"now": now, "s": dseq, "eid": entry_id})
-        return {"restored": True, "seq": pos, "sentence_id": sentence_id, "saved_at": now, "entry": entry_now()}
+        done_now = _mark_day_done(tx, entry_id, _entry_info(tx, entry_id), now)   # 되살려서 일기 하루치가 찰 수도 있다
+        return {"restored": True, "seq": pos, "sentence_id": sentence_id, "saved_at": now, "entry": entry_now(),
+                "day_done": done_now is not None}
 
     return db.run_in_transaction(work)
 

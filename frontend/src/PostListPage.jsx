@@ -44,7 +44,7 @@ function DateFinder({ bookId, onOpenEntry, onWrite, onAuthError }) {
 
     return (
         <div className="finder">
-            <input type="date" aria-label="날짜 선택" value={value} onChange={(e) => setValue(e.target.value)} />{' '}
+            <input type="date" aria-label="날짜 선택" value={value} max={todayKST()} onChange={(e) => setValue(e.target.value)} />{' '}
             <button type="button" onClick={find}>날짜로 찾기</button>{' '}
             <span className="hint" role="status">
                 {hint && hint.text}

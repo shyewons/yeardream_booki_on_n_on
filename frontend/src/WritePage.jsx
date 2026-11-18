@@ -8,6 +8,7 @@
 //   onSaved(글 번호)   '이야기 저장하기'가 끝남 → 글 조회 화면으로
 //   onDateChange(날짜)   '날짜 바꾸기'로 다른 날짜의 일기를 연다
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
+// 동화를 완성 기준(서버 reward_rules.py) 이상 쓰고 저장하지 않은 채 '← 이야기로'를 누르면, 나가기 전에 화면 안에서 완성을 권한다 (CompleteOffer).
 // 모양(CSS)은 아직 입히지 않았다. className 과 id 는 나중에 디자인을 입힐 때 쓰라고 남겨 둔 것이다.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -142,6 +143,27 @@ function DeleteConfirm({ writer }) {
             <div className="row">
                 <button type="button" className="btn-sm del yes" onClick={writer.confirmDelete}>지우기</button>{' '}
                 <button type="button" className="btn-sm" ref={cancelRef} onClick={writer.cancelDelete}>취소</button>
+            </div>
+        </div>
+    )
+}
+
+// 동화: 이야기 완성 권유 (저장하기를 안 누르고 나가려 할 때). 처음 선택은 '계속 쓸래요', Esc 를 눌러도 같다.
+function CompleteOffer({ writer, onLeave }) {
+    const stayRef = useRef(null)
+    useEffect(() => {
+        if (stayRef.current) stayRef.current.focus()
+        const onKey = (e) => { if (e.key === 'Escape') writer.closeComplete('esc') }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [writer])
+    return (
+        <div className="confirm" id="complete-offer" role="alertdialog" aria-label="이야기 완성하기">
+            <p className="ask">이야기를 완성할까요? 저장하면 이야기가 완성되고 보상을 받을 수 있어요.</p>
+            <div className="row">
+                <button type="button" className="primary" id="complete-yes" onClick={writer.completeNow}>완성하기</button>{' '}
+                <button type="button" className="btn-sm" id="complete-later" onClick={() => { writer.closeComplete('later'); onLeave() }}>나중에 할게요</button>{' '}
+                <button type="button" className="btn-sm" id="complete-stay" ref={stayRef} onClick={() => writer.closeComplete('stay')}>계속 쓸래요</button>
             </div>
         </div>
     )
@@ -303,7 +325,7 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
     return (
         <div className="write-page">
             <header>
-                <button type="button" className="to-list btn-sm" id="to-list" onClick={() => leave(onBack)}>
+                <button type="button" className="to-list btn-sm" id="to-list" onClick={() => { if (!writer.askComplete()) leave(onBack) }}>
                     {state.kind === 'fairy' ? '← 이야기로' : '← 목록으로'}
                 </button>
                 <h1 id="title">{title}</h1>
@@ -322,6 +344,8 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
                     </label>
                 )}
             </header>
+
+            {state.completeAsk && <CompleteOffer writer={writer} onLeave={() => leave(onBack)} />}
 
             {state.loadError ? (
                 <p id="savebar" className="err" role="status">
