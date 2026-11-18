@@ -29,6 +29,9 @@ function StoryChapters({ data, back, onOpenEntry, onWrite, onAuthError, reload }
     const [error, setError] = useState('')
 
     const last = story.chapters.length ? story.chapters[story.chapters.length - 1] : null
+    const steps = data.rules ? data.rules.story_reward_chapters : [3, 6, 10]        // 선물 구간 (reward_rules.py)
+    const minSentences = data.rules ? data.rules.story_chapter_min_sentences : 3     // 보상에 세는 장의 문장 수
+    const nextGift = steps.find((m) => m > story.qualified) || null                 // 다음 선물 구간 (없으면 다 모음)
     const lastNo = story.last_chapter        // DB 번호 (글을 열 때)
     const lastShown = story.last_display     // 화면 번호 (빈 장을 건너뛰고 센다)
     // 마지막 장을 다른 날 이어 쓸 때: 그 장이 이미 채워졌고(3문장 이상) 새 장을 쓸 수 있으면 묻는다
@@ -66,16 +69,20 @@ function StoryChapters({ data, back, onOpenEntry, onWrite, onAuthError, reload }
                 {story.finished && ' [완성]'}
             </h1>
 
-            {/* 보상 진행: 3문장 이상 쓴 장 수와 보상 구간 (받기는 보상 화면이 생기면). 장 번호와 헷갈리지 않게 '개'로 센다 */}
+            {/* 보상 진행 (받기는 보상 화면이 생기면).
+                 '3문장 이상 쓴 장: N개' 는 받은 보상 수가 아니라 보상에 세는 장의 수다. 선물 구간(3 · 6 · 10개)과 다음 선물까지 남은 장 수를 함께 보여 준다 */}
             <div className="reward-progress" id="reward-progress">
-                <span>이 책의 보상: {story.qualified}개</span>{' '}
+                <p className="reward-count">{minSentences}문장 이상 쓴 장: {story.qualified}개</p>
                 <ul className="reward-steps">
-                    {(data.rules ? data.rules.story_reward_chapters : [3, 6, 10]).map((m) => (
+                    {steps.map((m) => (
                         <li key={m} className={story.rewards_reached.includes(m) ? 'reached' : ''}>
                             🎁 {m}개{story.rewards_reached.includes(m) ? ' ✓' : ''}
                         </li>
                     ))}
                 </ul>
+                <p className="reward-next">
+                    {nextGift ? `다음 선물까지 ${nextGift - story.qualified}장 남았어요` : '선물을 모두 모았어요'}
+                </p>
             </div>
 
             {chapters.length === 0 ? (
