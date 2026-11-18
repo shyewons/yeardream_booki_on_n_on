@@ -85,8 +85,9 @@ export default function PostListPage({ bookId, page, onPageChange, onOpenEntry, 
         return (
             <div>
                 {back}
-                <h1>{COVER[book.cover] || '📖'} {book.title}에게 들려준 이야기 [{KIND_LABEL[book.kind] ?? book.kind}]</h1>
-                <p className="empty">아직 들려준 이야기가 없어요.</p>
+                {/* 동화 책 이름은 주제 이름 · 문장일 수 있어서 '○○에게 들려준 이야기' 대신 『책 이름』 으로 쓴다 */}
+                <h1>{COVER[book.cover] || '📖'} 『{book.title}』 [{KIND_LABEL[book.kind] ?? book.kind}]</h1>
+                <p className="empty">아직 쓴 이야기가 없어요.</p>
                 <p className="start">
                     <button type="button" onClick={() => onWrite(null)}>이야기 쓰기</button>
                 </p>

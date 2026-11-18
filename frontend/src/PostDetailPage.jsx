@@ -58,9 +58,9 @@ export default function PostDetailPage({ entryId, saved = false, onOpenEntry, on
         <div>
             {head}
             {saved && <p className="saved" role="status">✔ 이야기를 저장했어요!</p>}
-            {/* 제목: 일기는 날짜, 동화는 날짜가 없으니 책(동물) 이름으로 "○○에게 들려준 이야기" */}
+            {/* 제목: 일기는 날짜, 동화는 날짜가 없으니 책 이름으로 『○○』 (책 이름이 주제 이름 · 문장일 수 있어 '에게 들려준 이야기'는 쓰지 않는다) */}
             <h1>
-                {isFairy ? `${data.book.title}에게 들려준 이야기` : fmtDate(entry.date)}
+                {isFairy ? `『${data.book.title}』` : fmtDate(entry.date)}
                 {' '}[{entry.status === 'done' ? '완성' : '쓰는 중'}]
             </h1>
             <p className="sub">{[isFairy ? '동화' : data.book.title, when].filter(Boolean).join(' · ')}</p>

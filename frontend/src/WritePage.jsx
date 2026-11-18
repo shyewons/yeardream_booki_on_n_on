@@ -305,7 +305,7 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
     const entryDate = state.entry ? state.entry.date : null
     const title = !state.dbMode ? '일기 쓰기 · 연습 (저장되지 않아요)'
         : !state.entry ? '글쓰기'
-        : state.kind === 'fairy' ? `${state.bookTitle}에게 들려주는 이야기`     // 동화는 날짜가 없다
+        : state.kind === 'fairy' ? `『${state.bookTitle}』 이야기 쓰기`     // 동화는 날짜가 없다. 책 이름이 주제 이름 · 문장일 수 있어 『』로 감싼다
         : `${state.bookTitle} · ${fmtDate(entryDate)}`
     useEffect(() => {
         document.title = state.dbMode && state.bookTitle ? `${state.bookTitle} 쓰기` : '글쓰기'
