@@ -60,15 +60,47 @@ MODEL_LIBS = ("torch", "transformers", "sentence_transformers", "chromadb", "kiw
 STORY_SUGGEST_ON = os.environ.get("STORY_SUGGEST_ON", "all").strip().lower()
 STORY_SUGGEST_CHOICES = ("all", "no_correction")
 
-# 교정 문장 끝의 문장부호 정리: 교정 모델(et5)이 문장 끝에 마침표를 붙이는 버릇이 있어서 "맞나?." "와!." 처럼 겹친다.
-# 물음표 · 느낌표 뒤에 붙은 마침표는 지운다 ("맞나?." → "맞나?", "정말?!." → "정말?!"). 끄려면 False
-TIDY_END_MARKS = True
-_DOUBLE_END = re.compile(r"([?!])\.+(\s*)$")
+# 교정 문장의 문장부호는 아이가 쓴 그대로 둔다 (끄려면 False).
+#   교정 모델(et5)이 문장부호를 제멋대로 바꾸는 버릇이 있다:
+#     끝: "맞나?" → "맞나?.", "맞을지...." → "맞을지~~."      가운데: "아니... 왜" → "아니 왜"
+#   ② 바뀐 곳 찾기는 문장부호만 바뀐 것을 교정으로 치지 않으므로(config.IGNORE_PUNCT_ONLY), 화면에는 '고친 곳 없음'인데 문장부호만 사라진다.
+#   그래서 교정 문장을 '아이가 쓴 문장에 진짜로 고친 곳(difference)만 바꿔 넣은 것'으로 다시 만든다 (keep_child_punct).
+#   아이가 끝에 문장부호를 안 썼으면 교정 모델이 붙인 마침표는 그대로 둔다 ("놀았다" → "놀았다.").
+KEEP_END_MARKS = True
+_END_MARKS = re.compile(r"[.?!~…]+\s*$")
 
 
-def tidy_end(text: str) -> str:
-    """문장 끝의 '?.' '!.' 를 '?' '!' 로 바꾼다 (끝부분만 본다. 문장 가운데의 문장부호는 그대로)."""
-    return _DOUBLE_END.sub(r"\1\2", text) if TIDY_END_MARKS and isinstance(text, str) else text
+def tidy_end(original: str, revised: str) -> str:
+    """교정 문장(revised)의 끝 문장부호를 아이가 쓴 문장(original)의 끝 문장부호로 맞춘다."""
+    if not KEEP_END_MARKS or not isinstance(original, str) or not isinstance(revised, str):
+        return revised
+    mine = _END_MARKS.search(original.rstrip())
+    if not mine:                                          # 아이가 끝에 문장부호를 안 썼다 → 교정 모델 것 그대로
+        return revised
+    body = _END_MARKS.sub("", revised.rstrip())
+    return body + mine.group(0).strip() if body else revised
+
+
+def keep_child_punct(original: str, revised: str, difference: list) -> str:
+    """아이가 쓴 문장(original)에 진짜로 고친 곳(difference: before → after, 원문 위치 start~end)만 바꿔 넣는다.
+    교정 모델이 문장부호만 바꾼 곳은 아이 것이 그대로 남는다. 끝 문장부호는 tidy_end 와 같은 규칙.
+    위치가 맞지 않는 등 문제가 있으면 교정 모델 문장을 그대로 돌려준다."""
+    if not KEEP_END_MARKS or not isinstance(original, str) or not isinstance(revised, str):
+        return revised
+    try:
+        out = original
+        for d in sorted(difference or [], key=lambda d: d["start"], reverse=True):   # 뒤에서부터 바꿔야 앞 위치가 안 밀린다
+            if out[d["start"]:d["end"]] != d["before"]:
+                return revised
+            out = out[:d["start"]] + d["after"] + out[d["end"]:]
+    except (KeyError, TypeError):
+        return revised
+    out = out.rstrip()
+    if not _END_MARKS.search(out):                        # 아이가 끝에 문장부호를 안 썼다 → 교정 모델이 붙인 것을 붙인다
+        added = _END_MARKS.search(revised.rstrip())
+        if added:
+            out += added.group(0).strip()
+    return out
 
 
 # 모델이 꺼져 있을 때 임시 추천에 붙이는 안내 (아이와 선생님이 '모델이 만든 문장'으로 오해하지 않게)
@@ -281,12 +313,17 @@ def iter_correction(original_sentence: str) -> Iterator[Dict[str, Any]]:
 
     yield stage("spell_correct");   yield from prepare("spell_correct")
     ev = step("spell_correct")
-    tidy = tidy_end(state.get("revised_sentence"))          # "맞나?." → "맞나?" (바뀐 곳 찾기 전에 고쳐서, 화면 · 저장 · 비교 모두 정리된 문장을 쓴다)
+    tidy = tidy_end(original_sentence, state.get("revised_sentence"))   # 끝 문장부호는 아이 것 그대로 ("맞나?." → "맞나?", "맞을지~~." → "맞을지....").
+                                                                         # 바뀐 곳 찾기 전에 고쳐서, 화면 · 저장 · 비교 모두 정리된 문장을 쓴다
     if tidy != state.get("revised_sentence"):
         state["revised_sentence"] = tidy
         ev = {**ev, "data": {**ev["data"], "revised_sentence": tidy}}
     yield ev
     yield stage("extract_diff");    yield step("extract_diff")
+    kept = keep_child_punct(original_sentence, state.get("revised_sentence"), state.get("difference"))
+    if kept != state.get("revised_sentence"):              # 문장부호를 아이 것으로 되돌린 교정 문장 (화면 · 저장에 쓰인다)
+        state["revised_sentence"] = kept
+        yield {"type": "update", "data": {"revised_sentence": kept}}
     if route_after_diff(state) == "compliment":
         yield step("compliment")
     else:
