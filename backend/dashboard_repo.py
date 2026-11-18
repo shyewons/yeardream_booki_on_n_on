@@ -51,7 +51,8 @@ def week_diary_days(user_id, today=None):
 def picked_expressions(user_id, limit=MAX_EXPRESSIONS):
     """FR-044 동화에서 추천받은 표현 중 아이가 직접 골라 쓴 것 (최근 것부터).
     sentences.expression_choice = {"base": 원래 문장, "options": [후보...], "picked": 고른 문장 또는 null}
-    picked 가 null(원래 문장 그대로)이면 넣지 않는다. 고르지 않은 후보도 보여 주지 않는다."""
+    picked 가 null(원래 문장 그대로)이면 넣지 않는다. 고르지 않은 후보도 보여 주지 않는다.
+    화면에서 빠진 줄(ended_at 이 있는 줄: 다시쓰기 · 지우기 · 표현 다시 고르기)은 넣지 않는다."""
     rows = db.query(
         """SELECT s.id, s.expression_choice, s.written_at, b.id AS book_id, b.title AS book_title
              FROM sentences s
@@ -59,6 +60,7 @@ def picked_expressions(user_id, limit=MAX_EXPRESSIONS):
              JOIN books b ON b.id = e.book_id
             WHERE b.user_id = :uid AND b.kind = 'fairy'
               AND s.expression_choice IS NOT NULL
+              AND s.ended_at IS NULL
             ORDER BY s.written_at DESC, s.id DESC""",
         {"uid": user_id},
     )
