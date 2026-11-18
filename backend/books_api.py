@@ -11,10 +11,13 @@
   PUT  /api/entries/{entry_id}/sentences/{seq}    문장 저장(임시저장). 같은 seq 면 덮어쓰기, 끝 다음 순서면 새로 붙이기
   POST /api/entries/{entry_id}/sentences/{seq}/insert   문장 끼워 넣기 (body 는 문장 저장과 같다)
   POST /api/entries/{entry_id}/sentences/{seq}/move     문장 순서 바꾸기  body: {"to": 3}
+  DELETE /api/entries/{entry_id}/sentences/{seq}?sentence_id=123   문장 지우기 (DB 에는 '빠진 줄'로 남는다)
+  POST /api/entries/{entry_id}/restore            지운 문장 되살리기  body: {"sentence_id": 123, "seq": 3}
+  PUT  /api/entries/{entry_id}/draft              쓰던 문장 임시저장  body: {"text": "...", "mode": "new|edit|insert", "seq": 3}  (글자가 비면 지운다)
   POST /api/entries/{entry_id}/complete           '이야기 저장하기' (상태 done)
 
 DB에 닿지 못하면 503, 책이나 글이 없거나 내 것이 아니면 404, 요청 내용이 맞지 않으면 400,
-X-User-Token 헤더의 토큰이 맞지 않으면 401 을 돌려준다 (auth.py).
+X-User-Token 헤더의 토큰이 맞지 않으면 401, 화면이 아는 글과 DB 의 글이 달라졌으면 409 를 돌려준다 (auth.py).
 """
 import datetime
 
@@ -38,6 +41,9 @@ def _guard(fn, *args):
     except (db.DBNotConfigured, db.DBUnavailable, repo.NoUser) as e:
         devlog.error("db", e, {"call": getattr(fn, "__name__", "")})
         raise HTTPException(status_code=503, detail=str(e))
+    except repo.Stale as e:                              # 다른 탭 · 기기에서 글이 바뀜 → 화면이 다시 열라고 안내한다
+        devlog.write("action", "rejected", {"call": getattr(fn, "__name__", ""), "reason": "stale"})
+        raise HTTPException(status_code=409, detail=str(e))
     except repo.BadRequest as e:
         devlog.write("action", "rejected", {"call": getattr(fn, "__name__", ""), "reason": str(e)})
         raise HTTPException(status_code=400, detail=str(e))
@@ -54,7 +60,7 @@ def _act(name, result, **ids):
     """저장 동작 하나를 logs/action_날짜.log 에 적고 result 를 그대로 돌려준다. 글 내용은 적지 않고 번호 · 상태 · 개수만 적는다."""
     brief = {}
     if isinstance(result, dict):
-        for key in ("id", "kind", "seq", "changed", "moved", "status"):
+        for key in ("id", "kind", "seq", "changed", "moved", "status", "saved", "chars", "mode", "reason", "deleted", "restored", "sentence_id"):
             if isinstance(result.get(key), (str, int, bool)):
                 brief[key] = result[key]
         entry = result.get("entry")
@@ -125,6 +131,26 @@ def insert_sentence(entry_id: int, seq: int, body: dict = Body(...)):
 def move_sentence(entry_id: int, seq: int, body: dict = Body(...)):
     uid = _user()
     return _found(_act("move_sentence", _guard(repo.move_sentence, uid, entry_id, seq, (body or {}).get("to")), entry=entry_id, seq=seq, to=(body or {}).get("to")), "글")
+
+
+@router.delete("/entries/{entry_id}/sentences/{seq}")          # 문장 지우기  ?sentence_id= 그 자리 문장의 번호 (엉뚱한 줄을 지우지 않게)
+def delete_sentence(entry_id: int, seq: int, sentence_id: int = Query(...)):
+    uid = _user()
+    return _found(_act("delete_sentence", _guard(repo.delete_sentence, uid, entry_id, seq, sentence_id), entry=entry_id, seq=seq), "글")
+
+
+@router.post("/entries/{entry_id}/restore")                       # 지운 문장 되살리기  body: {"sentence_id": 123, "seq": 3}
+def restore_sentence(entry_id: int, body: dict = Body(...)):
+    uid = _user()
+    b = body or {}
+    return _found(_act("restore_sentence", _guard(repo.restore_sentence, uid, entry_id, b.get("sentence_id"), b.get("seq")),
+                       entry=entry_id, seq=b.get("seq")), "글")
+
+
+@router.put("/entries/{entry_id}/draft")                         # 쓰던 문장 임시저장  body: {"text": "...", "mode": "new|edit|insert", "seq": 3}
+def put_draft(entry_id: int, body: dict = Body(...)):
+    uid = _user()
+    return _found(_act("save_draft", _guard(repo.save_draft, uid, entry_id, body), entry=entry_id), "글")
 
 
 @router.post("/entries/{entry_id}/complete")

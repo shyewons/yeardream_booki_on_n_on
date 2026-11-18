@@ -10,6 +10,8 @@ pip install -r requirements.txt
 uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 ```
 
+화면은 `frontend` 폴더에서 `npm install` 후 `npm run dev` → http://localhost:5173 에서 봅니다. `http://127.0.0.1:8000` 을 열면 서버가 작동 중이라는 안내만 나옵니다.
+
 - 기본은 **모델 없이** 임시 노드(`demo_nodes.py`)로 돈다. 교정 모델까지 돌리려면 `pip install -r requirements-models.txt` 후 `USE_MODELS=1`.
 - DB 주소(`/api/...`)는 `backend/.env`가 있어야 한다. `.env.example`을 `.env`로 복사해 `DATABASE_URL`을 채운다. 없으면 그 주소들만 503.
   - 학습용 클라우드 DB는 SSH 터널을 먼저 켠다: `ssh -N -L 3307:127.0.0.1:3306 이름@주소 -p 포트`
@@ -29,7 +31,6 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `demo_nodes.py` | 모델 없이 돌릴 때 쓰는 임시 노드, 동화 표현 추천 임시 낱말표 |
 | `diary_pipeline/` | 유효성 검사(`input_validation.py`)와 교정 파이프라인 |
 | `devlog.py` | 개발용 로그 (아래 '로그' 참고), `POST /log/ui` |
-| `proto_pages.py` | **임시**: `frontend/temp`의 시험용 화면을 `/`, `/books`로 내보냄. React 화면이 완성되면 삭제 |
 | `temp/schema.sql`, `temp/seed_dummy.sql`, `temp/db_check.py` | 테이블 만들기, 더미 데이터, 접속 확인 |
 
 ## 주소

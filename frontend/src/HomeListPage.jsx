@@ -6,7 +6,7 @@ import { api } from './api.js'
 
 const KIND_LABEL = { diary: '일기', fairy: '동화' }
 
-export default function HomeListPage({ onCreateBook, onOpenBook, onAuthError }) {
+export default function HomeListPage({ onCreateBook, onOpenBook, onOpenDashboard, onAuthError }) {
   const [page, setPage] = useState(1)
   const [data, setData] = useState(null) // { owner, items, page, total, total_pages }
   const [error, setError] = useState('')
@@ -52,6 +52,7 @@ export default function HomeListPage({ onCreateBook, onOpenBook, onAuthError }) 
     <div>
       <h1>{data.owner}의 목장</h1>
       <button type="button" onClick={onCreateBook}>새 책 만들기</button>
+      <button type="button" onClick={onOpenDashboard}>대시보드</button>
 
       {data.total === 0 ? (
         <p>아직 책이 없어요. 첫 책을 만들어 볼까요?</p>
