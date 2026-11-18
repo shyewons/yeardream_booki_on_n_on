@@ -22,6 +22,7 @@ import importlib.util
 import json
 import os
 import random
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Iterator
@@ -58,6 +59,17 @@ MODEL_LIBS = ("torch", "transformers", "sentence_transformers", "chromadb", "kiw
 #   "no_correction" : 맞춤법이 맞은 문장에만 추천한다 (팀원 파이프라인의 run_story 와 같은 기준)
 STORY_SUGGEST_ON = os.environ.get("STORY_SUGGEST_ON", "all").strip().lower()
 STORY_SUGGEST_CHOICES = ("all", "no_correction")
+
+# 교정 문장 끝의 문장부호 정리: 교정 모델(et5)이 문장 끝에 마침표를 붙이는 버릇이 있어서 "맞나?." "와!." 처럼 겹친다.
+# 물음표 · 느낌표 뒤에 붙은 마침표는 지운다 ("맞나?." → "맞나?", "정말?!." → "정말?!"). 끄려면 False
+TIDY_END_MARKS = True
+_DOUBLE_END = re.compile(r"([?!])\.+(\s*)$")
+
+
+def tidy_end(text: str) -> str:
+    """문장 끝의 '?.' '!.' 를 '?' '!' 로 바꾼다 (끝부분만 본다. 문장 가운데의 문장부호는 그대로)."""
+    return _DOUBLE_END.sub(r"\1\2", text) if TIDY_END_MARKS and isinstance(text, str) else text
+
 
 # 모델이 꺼져 있을 때 임시 추천에 붙이는 안내 (아이와 선생님이 '모델이 만든 문장'으로 오해하지 않게)
 DEMO_SUGGEST_NOTICE = "지금은 표현 추천 모델이 꺼져 있어요. 아래 문장은 모델이 만든 것이 아니라 임의로 바꿔 본 예시예요."
@@ -267,7 +279,13 @@ def iter_correction(original_sentence: str) -> Iterator[Dict[str, Any]]:
         state.update(out)
         return {"type": "update", "data": out}
 
-    yield stage("spell_correct");   yield from prepare("spell_correct");   yield step("spell_correct")
+    yield stage("spell_correct");   yield from prepare("spell_correct")
+    ev = step("spell_correct")
+    tidy = tidy_end(state.get("revised_sentence"))          # "맞나?." → "맞나?" (바뀐 곳 찾기 전에 고쳐서, 화면 · 저장 · 비교 모두 정리된 문장을 쓴다)
+    if tidy != state.get("revised_sentence"):
+        state["revised_sentence"] = tidy
+        ev = {**ev, "data": {**ev["data"], "revised_sentence": tidy}}
+    yield ev
     yield stage("extract_diff");    yield step("extract_diff")
     if route_after_diff(state) == "compliment":
         yield step("compliment")
