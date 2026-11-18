@@ -7,7 +7,8 @@
   GET  /topics     동화 주제 추천
   POST /validate   유효성 검사만 (diary_pipeline/input_validation.py). 통과하면 route == "correction"
   POST /correct    교정 단계(diary_pipeline/nodes)를 한 단계씩 실행하고, 단계가 끝날 때마다 결과를 한 줄(NDJSON)씩 흘려보냄
-  POST /suggest    동화 표현 추천 (지금은 demo_nodes.py 의 임시 낱말표)
+  POST /suggest    동화 표현 추천. 모델을 켜면 diary_pipeline/explain.py 의 표현 생성(Kanana), 끄면 demo_nodes.py 의 임시 낱말표
+                   (임시일 때는 응답에 demo=True 와 안내 문구를 넣어, 화면이 '모델이 꺼져 있다'고 알리게 한다)
 
 실행은 main.py 를 본다 (uvicorn main:app). 이 파일은 서버를 직접 만들지 않고 router 와 lifespan 만 내놓는다.
   모델 없이(기본): 모델 노드 자리를 demo_nodes.py 의 임시 노드가 대신한다. 시험용 지연: DEMO_DELAY=1.5
@@ -51,6 +52,16 @@ STAGE_LABELS = {                                             # 화면에 보여 
     "explain": "설명을 쓰고 있어요",
 }
 MODEL_LIBS = ("torch", "transformers", "sentence_transformers", "chromadb", "kiwipiepy")
+
+# 동화 표현 추천을 언제 할지 (환경변수 STORY_SUGGEST_ON 으로도 바꿀 수 있다)
+#   "all"           : 맞춤법을 고친 문장에도 추천한다 (고친 문장을 바탕으로). 기본값
+#   "no_correction" : 맞춤법이 맞은 문장에만 추천한다 (팀원 파이프라인의 run_story 와 같은 기준)
+STORY_SUGGEST_ON = os.environ.get("STORY_SUGGEST_ON", "all").strip().lower()
+STORY_SUGGEST_CHOICES = ("all", "no_correction")
+
+# 모델이 꺼져 있을 때 임시 추천에 붙이는 안내 (아이와 선생님이 '모델이 만든 문장'으로 오해하지 않게)
+DEMO_SUGGEST_NOTICE = "지금은 표현 추천 모델이 꺼져 있어요. 아래 문장은 모델이 만든 것이 아니라 임의로 바꿔 본 예시예요."
+DEMO_SUGGEST_POINT = "(임시 예시) 낱말 하나를 비슷한 말로 바꿔 본 문장이에요."
 
 
 # =====================================================================
@@ -187,10 +198,35 @@ def handle_validate(payload: dict) -> dict:
 
 
 def handle_suggest(payload: dict) -> dict:
-    """동화 표현 추천: 문장을 다르게 쓴 예를 돌려준다 {"options": [문장, ...], "demo": True}. 추천할 것이 없으면 options 가 비어 있다.
-    지금은 모델 사용 여부와 상관없이 demo_nodes.py 의 낱말표로 만든 임시 추천이다 (추천 모델이 정해지면 여기만 바꾼다)."""
-    out = {"options": suggest_expressions(str((payload or {}).get("sentence", ""))[:200]), "demo": True}
-    dev_log("suggest", {"request": payload, "response": out})
+    """동화 표현 추천. 받는 값: {"sentence": 문장, "has_correction": 맞춤법을 고쳤는지}
+    돌려주는 값:
+      {"options": [{"text": 바꾼 문장, "point": 무엇이 좋아졌는지 한 줄}, ...],   추천이 없으면 빈 목록
+       "guide": 맨 위 안내, "original_point": '원래 문장' 보기 아래 문구,
+       "demo": 임시 추천인지, "notice": 임시일 때 화면에 꼭 보여 줄 안내, "mode": 실행 모드, "skipped": 추천하지 않은 이유}
+    모델을 켜면 explain.suggest_expressions(Kanana)로 새 표현 2개를 만들고, 만들지 못한 자리('원문 유지')는 빼고 돌려준다.
+    모델이 꺼져 있으면 demo_nodes.py 의 낱말표로 만든 임시 문장을 demo=True 와 안내 문구를 붙여 돌려준다."""
+    p = payload or {}
+    sentence = str(p.get("sentence", "")).strip()[:200]
+    has_correction = bool(p.get("has_correction"))
+    rule = STORY_SUGGEST_ON if STORY_SUGGEST_ON in STORY_SUGGEST_CHOICES else "all"
+    out = {"options": [], "guide": config.STORY_GUIDE, "original_point": config.STORY_ORIGINAL_POINT,
+           "demo": False, "notice": "", "mode": "", "skipped": None}
+    if not sentence:
+        out["skipped"] = "empty"
+    elif rule == "no_correction" and has_correction:
+        out["skipped"] = "has_correction"                      # 맞춤법이 맞은 문장에만 추천하는 설정
+    else:
+        _, mode = pick_nodes()
+        out["mode"] = mode
+        if mode.startswith("실제"):                            # 모델 사용: 팀원 파이프라인의 ⑥ 표현 생성
+            made = _explain.suggest_expressions({"original_sentence": sentence})["expressions"]
+            out["options"] = [{"text": e["text"], "point": e["point"]} for e in made if e.get("source") == "생성"]
+        else:                                                   # 모델 꺼짐: 임시 낱말표 (반드시 임시라고 알린다)
+            out["demo"] = True
+            out["notice"] = DEMO_SUGGEST_NOTICE
+            out["guide"] = "다른 말로 쓸 수도 있어요."
+            out["options"] = [{"text": t, "point": DEMO_SUGGEST_POINT} for t in suggest_expressions(sentence)]
+    dev_log("suggest", {"request": p, "rule": rule, "response": out})
     return out
 
 

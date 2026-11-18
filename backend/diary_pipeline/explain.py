@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """⑤ 설명문 생성 노드 (LLM, 초등학생 눈높이).   읽는 키: difference, rewritten_queries, evidence_docs  →  쓰는 키: explanations
 수정 1건마다 (틀린 표현, 고친 표현, 쿼리, 근거 문서)를 LLM에 넘겨 설명문 1개. explanations[i] 는 difference[i] 의 설명.
-LLM을 바꿀 때는 config.EXPLAIN_LLM_ID, 말투·규칙을 바꿀 때는 이 파일의 EXPLAIN_SYSTEM / EXPLAIN_EXAMPLE 만 고친다."""
+LLM을 바꿀 때는 config.EXPLAIN_LLM_ID, 말투·규칙을 바꿀 때는 이 파일의 EXPLAIN_SYSTEM / EXPLAIN_EXAMPLE 만 고친다.
+⑥ 표현 생성 노드(동화 모드, suggest_expressions)도 같은 LLM을 쓰므로 이 파일 아래쪽에 함께 둔다."""
+import json
+import re
+
 from . import config
 from .models import chat, load_llm
 
@@ -72,3 +76,99 @@ def explain(state: dict) -> dict:
 
 def preload():
     load_llm(config.EXPLAIN_LLM_ID)
+    load_llm(config.STORY_LLM_ID)         # 같은 모델이면 한 번만 불러온다
+
+
+# ======================= ⑥ 표현 생성 노드 (동화 모드) =======================
+# 읽는 키: original_sentence  →  쓰는 키: expressions (항상 2개)
+# 맞춤법이 맞은 문장을 뜻은 그대로 두고 더 풍부한 표현 2개(문장 + 한 줄 설명)로 바꾼다.
+# 프롬프트는 모델 비교 실험(동화 모드 sLLM 비교, Kanana 1.5 선정)에 쓴 것과 같다. 말투·규칙을 바꿀 때는 STORY_SYSTEM / STORY_EXAMPLE 만 고친다.
+
+STORY_SYSTEM = (
+    "당신은 초등학교 1~4학년 아이의 글쓰기를 돕는 다정한 선생님이에요.\n"
+    "아이가 쓴 문장을 받으면, 뜻과 내용은 그대로 두고 더 풍부하게 바꾼 문장 2개를 만들어요.\n"
+    "\n"
+    "[규칙]\n"
+    "- 아이가 쓴 내용(누가, 무엇을, 어디서)을 바꾸거나 없는 일을 지어내지 않아요.\n"
+    "- 두 문장은 서로 다른 방법으로 바꿔요. 예: 기분이나 모양을 꾸며 주는 말 더하기, 흉내 내는 말 쓰기, 때나 장소를 자세히 쓰기.\n"
+    "- 아이 문장의 말투(…했다 / …했어요)를 그대로 따라요.\n"
+    "- 한 문장으로, 아이 문장보다 너무 길지 않게, 초등학생이 아는 쉬운 낱말로 써요.\n"
+    "- 문장마다 무엇을 바꿔서 어떻게 좋아졌는지 아이에게 해요체 한 문장으로 알려 줘요.\n"
+    "\n"
+    "[출력 형식] 아래처럼 JSON 배열 하나만 출력하고 다른 말은 쓰지 않아요.\n"
+    '[{"text": "바꾼 문장 1", "point": "설명 1"}, {"text": "바꾼 문장 2", "point": "설명 2"}]'
+)
+STORY_EXAMPLE = {
+    "input": "강아지랑 공원에서 놀았다.",
+    "output": json.dumps([
+        {"text": "강아지랑 공원을 신나게 뛰어다니며 놀았다.", "point": "'신나게 뛰어다니며'를 넣어서 얼마나 재미있었는지 잘 보여요."},
+        {"text": "강아지랑 공원에서 해가 질 때까지 놀았다.", "point": "언제까지 놀았는지 넣으니 장면이 눈에 그려져요."}], ensure_ascii=False),
+}
+
+
+def _story_messages(sentence: str) -> list[dict]:
+    return [
+        {"role": "system", "content": STORY_SYSTEM},
+        {"role": "user", "content": f"아이가 쓴 문장: {STORY_EXAMPLE['input']}"},
+        {"role": "assistant", "content": STORY_EXAMPLE["output"]},
+        {"role": "user", "content": f"아이가 쓴 문장: {sentence}"},
+    ]
+
+
+def _close_brackets(s: str) -> str:
+    """문자열 밖에서 열리고 안 닫힌 [ { 를 닫아 준다 (작은 모델이 마지막 괄호를 빼먹는 경우 대비)."""
+    stack, in_str, esc = [], False, False
+    for ch in s:
+        if in_str:
+            if esc: esc = False
+            elif ch == "\\": esc = True
+            elif ch == '"': in_str = False
+        elif ch == '"': in_str = True
+        elif ch in "[{": stack.append("]" if ch == "[" else "}")
+        elif ch in "]}" and stack: stack.pop()
+    return s + "".join(reversed(stack))
+
+
+def _parse_expressions(raw: str, original: str) -> list[dict]:
+    """LLM 출력에서 쓸 수 있는 표현만 골라 돌려준다 (최대 2개)."""
+    s = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip()).strip()
+    i = s.find("[")
+    if i < 0:
+        return []
+    try:
+        items = json.loads(s[i:s.rfind("]") + 1])
+    except Exception:
+        try:
+            items = json.loads(_close_brackets(s[i:]))
+        except Exception:
+            return []
+    norm = lambda t: re.sub(r"[\s.!?]", "", t)
+    out, seen = [], {norm(original)}
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict):
+            continue
+        text, point = str(it.get("text", "")).strip(), str(it.get("point", "")).strip()
+        if text and point and norm(text) not in seen:           # 비었거나, 원문 그대로이거나, 앞 표현과 같으면 버림
+            seen.add(norm(text))
+            out.append({"text": text, "point": point, "source": "생성"})
+    return out[:2]
+
+
+def suggest_expressions(state: dict) -> dict:
+    """1번 생성(greedy) → 2개가 안 되면 1번 더(샘플링) → 그래도 모자라면 원문으로 채워 항상 2개를 돌려준다."""
+    src = state["original_sentence"]
+    exprs = []
+    for gen in ({}, {"do_sample": True, "temperature": 0.7, "top_p": 0.9}):
+        try:
+            raw = chat(config.STORY_LLM_ID, _story_messages(src), max_new_tokens=300, **gen)
+        except Exception as e:
+            print("[suggest_expressions] 생성 실패:", e)
+            continue
+        for e in _parse_expressions(raw, src):
+            if len(exprs) < 2 and all(e["text"] != x["text"] for x in exprs):
+                exprs.append(e)
+        if len(exprs) == 2:
+            break
+    while len(exprs) < 2:                                          # 드묾: 화면이 항상 3개를 그릴 수 있게 채움
+        exprs.append({"text": src, "point": config.STORY_FALLBACK_POINT, "source": "원문 유지"})
+    return {"expressions": exprs}

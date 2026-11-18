@@ -491,6 +491,8 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     // ── 동화 표현 추천 ──
     // 문장이 교정까지 끝나고 저장된 뒤에, 다르게 쓴 문장 몇 개와 '원래 문장 그대로'를 보여 준다.
     // 고르면 그 문장으로 바꿔 다시 저장한다. 추천이 없으면 아무것도 띄우지 않고, 불러오지 못해도 쓴 문장은 그대로다.
+    // 서버(/suggest)가 보기마다 {text, point}(무엇이 좋아졌는지 한 줄)를 준다. 모델이 꺼져 있으면 demo=True 와 안내(notice)가 온다.
+    // 맞춤법을 고친 문장에도 추천할지는 서버 설정(STORY_SUGGEST_ON)이 정한다. 추천하지 않으면 빈 목록이 온다.
     function offerExpressions(s) {
         return new Promise((resolve) => {
             const base = s.revised || s.original
@@ -500,17 +502,28 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
                 emit()
                 let r
                 try {
-                    r = await api('/suggest', { method: 'POST', body: { sentence: base } })
+                    r = await api('/suggest', { method: 'POST', body: { sentence: base, has_correction: !!s.was_corrected } })
                 } catch (e) {
                     track('expr_fail', { message: short(e) })
                     st.expr = { ...st.expr, status: 'error' }
                     emit()
                     return
                 }
-                const options = (r.options || []).filter((o) => typeof o === 'string' && o && o !== base).slice(0, 3)
-                track('expr_shown', { options: options.length })
+                // 보기: 문자열(예전 형식)이든 {text, point} 든 받아서 {text, point} 로 맞춘다. 원래 문장과 같거나 겹치는 보기는 뺀다
+                const options = []
+                for (const o of r.options || []) {
+                    const text = String((typeof o === 'string' ? o : o && o.text) || '').trim()
+                    const point = typeof o === 'string' ? '' : String((o && o.point) || '').trim()
+                    if (text && text !== base && !options.some((x) => x.text === text)) options.push({ text, point })
+                }
+                options.splice(3)
+                track('expr_shown', { options: options.length, demo: !!r.demo, skipped: r.skipped || null })
                 if (!options.length) { exprResolve(); emit(); return }
-                st.expr = { ...st.expr, status: 'ready', options }
+                st.expr = {
+                    ...st.expr, status: 'ready', options,
+                    guide: r.guide || '', originalPoint: r.original_point || '',
+                    demo: !!r.demo, notice: r.notice || '',     // 모델이 꺼져 있을 때: 임시 예시라는 안내 (화면에 꼭 보여 준다)
+                }
                 emit()
             }
             load()
@@ -525,10 +538,12 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         const e = st.expr
         if (!e || e.status !== 'ready') return
         const s = st.sentences.find((x) => x.id === e.sentenceId)
-        const picked = e.value !== 'keep' ? e.options[Number(e.value)] : null
-        track('expr_pick', { picked: picked ? Number(e.value) : null, options: e.options.length })
+        const picked = e.value !== 'keep' ? e.options[Number(e.value)].text : null
+        track('expr_pick', { picked: picked ? Number(e.value) : null, options: e.options.length, demo: !!e.demo })
         if (s) {
-            s.expression_choice = { base: e.base, options: e.options, picked }   // 무엇을 보여 줬고 무엇을 골랐는지 (DB의 expression_choice)
+            // 무엇을 보여 줬고 무엇을 골랐는지 (DB의 expression_choice). base · options(문장 목록) · picked 는 대시보드가 읽으므로 모양을 유지하고,
+            // points(보기마다 한 줄 설명) · demo(모델이 꺼져 임시 예시였는지)를 덧붙인다
+            s.expression_choice = { base: e.base, options: e.options.map((o) => o.text), points: e.options.map((o) => o.point), picked, demo: !!e.demo }
             if (picked) { s.revised = picked; s.reason = 'expr' }   // 표현을 바꾸면 서버가 바뀌기 전 줄을 기록으로 남긴다
             s.saveState = 'pending'
             if (dbMode) queueSave(s)

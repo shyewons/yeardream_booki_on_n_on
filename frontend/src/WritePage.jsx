@@ -171,7 +171,7 @@ function TopicBox({ box, writer }) {
 
 // 동화: 표현 추천 (바꿔 쓴 문장 + 원래 문장 그대로)
 function ExprBox({ expr, writer }) {
-    if (expr.status === 'loading') return <div id="expr-box"><p>다른 표현을 찾고 있어요…</p></div>
+    if (expr.status === 'loading') return <div id="expr-box"><p>다른 표현을 찾고 있어요… (처음에는 조금 오래 걸릴 수 있어요)</p></div>
     if (expr.status === 'error') {
         return (
             <div id="expr-box">
@@ -183,18 +183,25 @@ function ExprBox({ expr, writer }) {
             </div>
         )
     }
-    const radio = (value, text) => (
-        <label key={value}>
-            <input type="radio" name="expr" value={value} checked={expr.value === value} onChange={() => writer.pickExpr(value)} />
-            <span>{text}</span>
-        </label>
+    // 보기 하나: 한 줄에 하나씩(div). 문장 아래 줄에 한 줄 설명(point, 무엇이 좋아졌는지)
+    // (스타일 없이도 보기끼리 · 문장과 설명이 줄이 나뉘어 보이게 한다. 디자인을 입힐 때 .opt / .text / .point 를 쓰면 된다)
+    const radio = (value, text, point) => (
+        <div className="opt" key={value}>
+            <label>
+                <input type="radio" name="expr" value={value} checked={expr.value === value} onChange={() => writer.pickExpr(value)} />
+                <span className="text">{text}</span>
+                {point && <><br /><small className="point">{point}</small></>}
+            </label>
+        </div>
     )
     return (
         <div id="expr-box">
-            <p className="ask">지금 문장도 좋아요. 다른 말로 쓸 수도 있어요.</p>
+            {/* 모델이 꺼져 있을 때: 아래 보기는 모델이 만든 게 아니라 임시 예시라고 꼭 알린다 (서버 /suggest 의 notice) */}
+            {expr.demo && <p className="demo-note" role="note">{expr.notice || '지금은 표현 추천 모델이 꺼져 있어요. 아래 문장은 임의로 바꿔 본 예시예요.'}</p>}
+            <p className="ask">{expr.guide || '지금 문장도 좋아요. 다른 말로 쓸 수도 있어요.'}</p>
             <p>내가 쓴 문장: {expr.base}</p>
-            {expr.options.map((o, i) => radio(String(i), o))}
-            {radio('keep', '원래 문장 그대로 쓸래요')}
+            {expr.options.map((o, i) => radio(String(i), o.text, o.point))}
+            {radio('keep', '원래 문장 그대로 쓸래요', expr.originalPoint)}
             <div className="row">
                 <button type="button" className="yes" onClick={writer.confirmExpr}>확인하기</button>
             </div>

@@ -13,6 +13,9 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 화면은 `frontend` 폴더에서 `npm install` 후 `npm run dev` → http://localhost:5173 에서 봅니다. `http://127.0.0.1:8000` 을 열면 서버가 작동 중이라는 안내만 나옵니다.
 
 - 기본은 **모델 없이** 임시 노드(`demo_nodes.py`)로 돈다. 교정 모델까지 돌리려면 `pip install -r requirements-models.txt` 후 `USE_MODELS=1`.
+- 동화 표현 추천(`/suggest`): 모델을 켜면 `diary_pipeline/explain.py` 의 표현 생성(Kanana, 설명문과 같은 모델)으로 새 표현 2개와 한 줄 설명을 만든다.
+  모델이 꺼져 있으면 `demo_nodes.py` 의 낱말표로 임시 예시를 주고, 화면에 "모델이 꺼져 있어 임의로 바꾼 예시"라는 안내가 나온다.
+  언제 추천할지는 `STORY_SUGGEST_ON`(`all` 기본: 고친 문장에도 / `no_correction`: 맞춤법이 맞은 문장에만)으로 정한다.
 - DB 주소(`/api/...`)는 `backend/.env`가 있어야 한다. `.env.example`을 `.env`로 복사해 `DATABASE_URL`을 채운다. 없으면 그 주소들만 503.
   - 학습용 클라우드 DB는 SSH 터널을 먼저 켠다: `ssh -N -L 3307:127.0.0.1:3306 이름@주소 -p 포트`
 - 프론트(React)는 `frontend`에서 `npm run dev`. `vite.config.js`의 프록시가 API 요청을 이 서버로 넘긴다.

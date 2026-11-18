@@ -23,3 +23,9 @@ SEM_PCT, SEM_MIN, SEM_MAX = 10, 200, 800               # 하위 몇 %, 청크 �
 
 # ⑤ 설명문 LLM
 EXPLAIN_LLM_ID = "kakaocorp/kanana-1.5-2.1b-instruct-2505"
+
+# ⑥ 표현 생성 (동화 모드에서 맞춤법이 맞았을 때, 칭찬 대신). 설명문과 같은 모델을 써서 추가 메모리가 들지 않음
+STORY_LLM_ID = EXPLAIN_LLM_ID
+STORY_GUIDE = "맞춤법을 잘 지켰네요! 다른 표현으로도 바꿔 볼까요? 마음에 드는 문장을 골라 보세요."
+STORY_ORIGINAL_POINT = "내가 쓴 문장이에요."                     # ① 원문 아래 문구
+STORY_FALLBACK_POINT = "지금 문장 그대로도 좋아요."               # 표현을 만들지 못했을 때 채우는 문구 (드묾)
