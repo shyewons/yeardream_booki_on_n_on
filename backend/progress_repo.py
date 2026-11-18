@@ -5,17 +5,18 @@
 
   diary_done_days(uid, 시작일, 끝일)   일기 하루치를 채운 날짜 목록
   week_status(uid, 날짜)               그 날짜가 든 주(월~일)의 하루치 날짜 수와 주간 달성 여부
-  story_progress(uid, 책 번호)         동화 한 편의 문장 수 · 페이지 보상 개수 · 완성 보상 조건
+  story_progress(uid, 책 번호)         동화 한 편의 장별 문장 수 · 채운 장 보상 구간 · 완성 보상 조건
   topic_counts(uid, 책 번호=None)      동화 주제별 문장 수 (주제를 바꿔 가며 쓴 경우 포함)
 
 보상을 이미 받았는지는 보상 코드가 reward_claims 와 비교한다.
-  예: 페이지 보상을 2번까지 받았으면, story_progress 의 pages_closed 가 3 이상이 될 때만 3번 보상을 준다.
-      (20줄 → 2번까지 받음 → 5줄 지움 → 다시 5줄 써도 pages_closed 는 1 → 새 보상 없음. 받은 보상은 그대로 둔다)
+  예: 장 보상 3을 받았으면, story_progress 의 rewards_reached 에 6이 들어올 때만 6 보상을 준다.
+      (지워서 qualified 가 줄었다가 다시 채워도 이미 받은 구간은 reward_claims 에 남아 있어 두 번 주지 않는다. 받은 보상은 그대로 둔다)
 """
 import datetime
 
 import db
 import reward_rules as rules
+import books_repo as repo
 from books_repo import today_kst, _as_date
 
 
@@ -48,30 +49,23 @@ def week_status(user_id, day=None):
 
 
 def story_progress(user_id, book_id):
-    """동화 책 한 권(= 이야기 한 편)의 진행. 책이 없거나 내 동화 책이 아니면 None.
-      sentence_count   보이는 문장 수
-      pages_closed     페이지 보상 개수: 다음 페이지의 첫 문장을 쓴 페이지 수. (문장 수 - 1) // STORY_PAGE_SENTENCES
-                       10줄 → 0, 11줄 → 1, 20줄 → 1, 21줄 → 2. 마지막 페이지는 완성 보상이 대신한다
-      done             '이야기 저장하기'를 눌렀는지 (status = done)
-      done_reward_ok   완성 보상 조건: done 이고 문장이 STORY_DONE_MIN_SENTENCES 개 이상"""
-    rows = db.query(
-        """SELECT e.id, e.status,
-                  (SELECT COUNT(*) FROM sentences s WHERE s.entry_id = e.id AND s.seq IS NOT NULL) AS n
-             FROM entries e JOIN books b ON b.id = e.book_id
-            WHERE b.id = :bid AND b.user_id = :uid AND b.kind = 'fairy'
-            ORDER BY e.id LIMIT 1""",
-        {"bid": book_id, "uid": user_id})
-    if not rows:
-        book = db.query("SELECT id FROM books WHERE id = :bid AND user_id = :uid AND kind = 'fairy'", {"bid": book_id, "uid": user_id})
-        if not book:
-            return None
-        return {"book_id": book_id, "entry_id": None, "sentence_count": 0, "pages_closed": 0, "done": False, "done_reward_ok": False}
-    r = rows[0]
-    n = int(r["n"])
-    done = r["status"] == "done"
-    return {"book_id": book_id, "entry_id": r["id"], "sentence_count": n,
-            "pages_closed": max(0, (n - 1) // rules.STORY_PAGE_SENTENCES),
-            "done": done, "done_reward_ok": done and n >= rules.STORY_DONE_MIN_SENTENCES}
+    """동화 책 한 권(= 이야기 하나, 장으로 나뉨)의 진행. 책이 없거나 내 동화 책이 아니면 None.
+      chapters          [{chapter_no, sentence_count, qualified}] 문장이 있는 장만 (빈 장은 숨긴다)
+      qualified         3문장 이상 쓴 장 수 (STORY_CHAPTER_MIN_SENTENCES)
+      rewards_reached   장 보상 구간(3 · 6 · 10) 중 채운 것. 받았는지는 보상 코드가 reward_claims 와 비교한다
+      finished          '이야기 끝내기'를 했는지 (books.finished_at)
+      finish_reward_ok  완성 보상 조건: 끝냈고 qualified 가 STORY_FINISH_MIN_CHAPTERS 이상"""
+    book = db.query("SELECT id FROM books WHERE id = :bid AND user_id = :uid AND kind = 'fairy'", {"bid": book_id, "uid": user_id})
+    if not book:
+        return None
+    story = repo._story(db, book_id)
+    return {"book_id": book_id,
+            "chapters": [{"chapter_no": c["chapter_no"], "sentence_count": c["sentence_count"], "qualified": c["qualified"]}
+                         for c in story["chapters"] if c["sentence_count"] > 0],
+            "qualified": story["qualified"],
+            "rewards_reached": story["rewards_reached"],
+            "finished": story["finished"],
+            "finish_reward_ok": story["finished"] and story["qualified"] >= rules.STORY_FINISH_MIN_CHAPTERS}
 
 
 def topic_counts(user_id, book_id=None):

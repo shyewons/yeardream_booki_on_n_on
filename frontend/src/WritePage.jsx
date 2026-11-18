@@ -1,14 +1,18 @@
 // 글쓰기 화면 (요구사항정의서 차트 - 화면ID 시트 - 05~09번 화면)
-// 한 문장씩 쓴다: 확인하기 → 유효성 검사 → 교정 → 문장 저장.  다 쓰면 '다 썼어요' → 전체 글 → '이야기 저장하기'.
+// 한 문장씩 쓴다: 확인하기 → 유효성 검사 → 교정 → 문장 저장.
+//   일기: 다 쓰면 '다 썼어요' → 전체 글 → '이야기 저장하기'.
+//   동화: 장(1~10장)마다 쓴다. 문장은 쓰는 대로 저장되고, '이야기 끝내기'로 이야기 전체를 끝낸다 (FinishOffer).
 // 동작은 모두 writer.js 에 있고, 이 파일은 그 상태를 그리기만 한다.
-//   bookId 책의 글을 열어 문장마다 저장한다 (일기는 date 의 글, 동화는 date 없이 책 하나에 이야기 한 편).
+//   bookId 책의 글을 열어 문장마다 저장한다 (일기는 date 의 글, 동화는 date 자리의 'ch3' · 'new' 로 장을 고른다).
 //
 // 화면을 바꾸는 일은 App.jsx 가 한다. 이 화면은 아래 함수(props)를 부르기만 한다.
-//   onBack()   글 목록으로 (동화는 이야기 보기로)
-//   onSaved(글 번호)   '이야기 저장하기'가 끝남 → 글 조회 화면으로
-//   onDateChange(날짜)   '날짜 바꾸기'로 다른 날짜의 일기를 연다
+//   onBack()   글 목록으로 (동화는 장 목록으로)
+//   onSaved(글 번호)   '이야기 저장하기' · '이야기 끝내기'가 끝남 → 글 조회 화면으로
+//   onDateChange(날짜 · 장)   '날짜 바꾸기'로 다른 날짜의 일기를, 동화 '다음 장'으로 다음 장('ch4')을 연다
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
-// 동화를 완성 기준(서버 reward_rules.py) 이상 쓰고 저장하지 않은 채 '← 이야기로'를 누르면, 나가기 전에 화면 안에서 완성을 권한다 (CompleteOffer).
+// 동화는 3·6·9장째를 채우거나 10장을 채운 뒤 '← 목록으로'를 누르면, 나가기 전에 화면 안에서 끝낼지 묻는다 (FinishOffer).
+// 동화 '← 이전 장' · '다음 장 →': 있는 장으로는 바로, 새 장은 '새로 쓸까요?'를 묻고 연다 (onDateChange 로 'ch4' 를 넘긴다).
+//   마지막 장에서 새 장을 쓸 수 없으면(빈 장 · 10장 · 끝낸 이야기) '다음 장'은 눌리지 않는다. 장 번호는 화면 번호(display_no)로 보여 준다.
 // 모양(CSS)은 아직 입히지 않았다. className 과 id 는 나중에 디자인을 입힐 때 쓰라고 남겨 둔 것이다.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -110,8 +114,8 @@ function SentenceCard({ sentence: s, index, total, state, writer }) {
                     <button type="button" className="btn-sm" disabled={busy} title={busy ? '교정이 끝난 뒤에 고칠 수 있어요' : ''}
                                     onClick={() => writer.startEdit(s.id)}>다시쓰기</button>
                 )}
-                {/* 지우기: 저장이 끝난 줄만. 다시쓰기 중인 줄 · 교정 중 · 다른 줄을 지우는 중에는 잠긴다 (writer.js 의 canDelete) */}
-                {state.dbMode && s.original && (
+                {/* 지우기: 저장이 끝난 줄만. 다시쓰기 중인 줄 · 교정 중 · 다른 줄을 지우는 중에는 잠긴다 (writer.js 의 canDelete). 끝낸 동화는 보이지 않는다 */}
+                {state.dbMode && s.original && !state.finished && (
                     <button type="button" className="btn-sm del" disabled={!s.deletable || state.confirmDeleteId !== null}
                                     aria-label={`${index + 1}번째 줄 지우기`} onClick={() => writer.askDelete(s.id)}>
                         {state.deletingId === s.id ? '지우는 중…' : '지우기'}
@@ -148,8 +152,28 @@ function DeleteConfirm({ writer }) {
     )
 }
 
-// 동화: 이야기 완성 권유 (저장하기를 안 누르고 나가려 할 때). 처음 선택은 '계속 쓸래요', Esc 를 눌러도 같다.
-function CompleteOffer({ writer, onLeave }) {
+// 동화: 다음 장을 새로 쓸지 묻기. 처음 선택은 '이 장 계속 쓰기', Esc 를 눌러도 같다.
+function NextChapterAsk({ chapterNo, writer, onGo }) {
+    const stayRef = useRef(null)
+    useEffect(() => {
+        if (stayRef.current) stayRef.current.focus()
+        const onKey = (e) => { if (e.key === 'Escape') writer.closeNext() }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [writer])
+    return (
+        <div className="confirm" id="next-ask" role="alertdialog" aria-label="다음 장 쓰기">
+            <p className="ask">{chapterNo}장은 여기까지 쓸까요? {chapterNo + 1}장을 새로 써요.</p>
+            <div className="row">
+                <button type="button" className="primary" id="next-yes" onClick={() => { writer.closeNext(); onGo() }}>{chapterNo + 1}장 쓰기</button>{' '}
+                <button type="button" className="btn-sm" id="next-stay" ref={stayRef} onClick={writer.closeNext}>{chapterNo}장 계속 쓰기</button>
+            </div>
+        </div>
+    )
+}
+
+// 동화: 이야기 끝내기 묻기 (나갈 때 3·6·9장 · 10장, 또는 '이야기 끝내기' 버튼). 처음 선택은 '계속 쓸래요', Esc 를 눌러도 같다.
+function FinishOffer({ ask, writer, onLeave, saving, error }) {
     const stayRef = useRef(null)
     useEffect(() => {
         if (stayRef.current) stayRef.current.focus()
@@ -157,13 +181,26 @@ function CompleteOffer({ writer, onLeave }) {
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
     }, [writer])
+    const question = ask.last ? '마지막 장까지 다 썼어요! 이야기를 끝낼까요?'
+        : ask.upto ? `${ask.upto}장까지 썼어요. 여기서 이야기를 끝낼까요, 다음에 이어 쓸까요?`
+        : '이야기를 끝낼까요?'
     return (
-        <div className="confirm" id="complete-offer" role="alertdialog" aria-label="이야기 완성하기">
-            <p className="ask">이야기를 완성할까요? 저장하면 이야기가 완성되고 보상을 받을 수 있어요.</p>
+        <div className="confirm" id="complete-offer" role="alertdialog" aria-label="이야기 끝내기">
+            <p className="ask">{question}</p>
+            <p className="note">끝내면 새 장은 더 쓸 수 없고, 고쳐 쓰기만 할 수 있어요.</p>
+            {error && <p role="alert" id="finish-error">{error}</p>}
             <div className="row">
-                <button type="button" className="primary" id="complete-yes" onClick={writer.completeNow}>완성하기</button>{' '}
-                <button type="button" className="btn-sm" id="complete-later" onClick={() => { writer.closeComplete('later'); onLeave() }}>나중에 할게요</button>{' '}
-                <button type="button" className="btn-sm" id="complete-stay" ref={stayRef} onClick={() => writer.closeComplete('stay')}>계속 쓸래요</button>
+                <button type="button" className="primary" id="complete-yes" disabled={saving} onClick={writer.completeNow}>
+                    {saving ? '끝내는 중…' : '이야기 끝내기'}
+                </button>{' '}
+                {ask.from === 'leave' && (
+                    <>
+                        <button type="button" className="btn-sm" id="complete-later" disabled={saving}
+                                onClick={() => { writer.closeComplete('later'); onLeave() }}>다음에 이어 쓸래요</button>{' '}
+                    </>
+                )}
+                <button type="button" className="btn-sm" id="complete-stay" ref={stayRef} disabled={saving}
+                        onClick={() => writer.closeComplete('stay')}>계속 쓸래요</button>
             </div>
         </div>
     )
@@ -305,7 +342,7 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
     const entryDate = state.entry ? state.entry.date : null
     const title = !state.dbMode ? '일기 쓰기 · 연습 (저장되지 않아요)'
         : !state.entry ? '글쓰기'
-        : state.kind === 'fairy' ? `『${state.bookTitle}』 이야기 쓰기`     // 동화는 날짜가 없다. 책 이름이 주제 이름 · 문장일 수 있어 『』로 감싼다
+        : state.kind === 'fairy' ? `『${state.bookTitle}』 ${state.displayNo || state.chapterNo || 1}장 ${state.finished ? '고쳐 쓰기' : '쓰기'}`   // 동화는 날짜 대신 장. 책 이름이 주제 이름 · 문장일 수 있어 『』로 감싼다
         : `${state.bookTitle} · ${fmtDate(entryDate)}`
     useEffect(() => {
         document.title = state.dbMode && state.bookTitle ? `${state.bookTitle} 쓰기` : '글쓰기'
@@ -318,6 +355,19 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
         : state.insertAt !== null ? '사이에 넣을 문장을 적어보세요'
         : state.kind === 'fairy' ? '상상한 이야기를 한 문장으로 적어보세요' : '오늘 있었던 일을 한 문장으로 적어보세요'
 
+    // 동화 '다음 장': 다음 장이 이미 있으면 바로 넘어가고, 새 장이면 먼저 묻는다
+    const nav = writer.chapterNav()
+    function goNext() {
+        const next = writer.chapterNav().next
+        if (!next) return
+        if (next.isNew) writer.askNext()
+        else leave(() => onDateChange(next.target))
+    }
+    function goPrev() {
+        const prev = writer.chapterNav().prev
+        if (prev) leave(() => onDateChange(prev.target))
+    }
+
     function changeDate(e) {
         const value = e.target.value
         if (!value || value === entryDate) return
@@ -329,13 +379,13 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
         <div className="write-page">
             <header>
                 <button type="button" className="to-list btn-sm" id="to-list" onClick={() => { if (!writer.askComplete()) leave(onBack) }}>
-                    {state.kind === 'fairy' ? '← 이야기로' : '← 목록으로'}
+                    ← 목록으로
                 </button>
                 <h1 id="title">{title}</h1>
                 {state.entry && <span className="pill" id="kind-pill">{state.kind === 'fairy' ? '동화' : '일기'}</span>}{' · '}
                 {state.entry && (
-                    <span className={state.entry.status === 'done' ? 'pill ok' : 'pill warn'} id="entry-pill">
-                        {state.entry.status === 'done' ? '완성' : '쓰는 중'}
+                    <span className={(state.kind === 'fairy' ? state.finished : state.entry.status === 'done') ? 'pill ok' : 'pill warn'} id="entry-pill">
+                        {(state.kind === 'fairy' ? state.finished : state.entry.status === 'done') ? '완성' : '쓰는 중'}
                     </span>
                 )}
                 {' '}
@@ -348,7 +398,23 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
                 )}
             </header>
 
-            {state.completeAsk && <CompleteOffer writer={writer} onLeave={() => leave(onBack)} />}
+            {state.nextAsk && (
+                <NextChapterAsk chapterNo={state.displayNo || state.chapterNo} writer={writer}
+                                onGo={() => { const next = writer.chapterNav().next; if (next) leave(() => onDateChange(next.target)) }} />
+            )}
+
+            {state.finishAsk && (
+                <FinishOffer ask={state.finishAsk} writer={writer} onLeave={() => leave(onBack)}
+                             saving={state.finishSaving} error={state.finishError} />
+            )}
+
+            {/* 동화: 마지막 장 안내 · 끝낸 이야기 안내 */}
+            {state.kind === 'fairy' && state.entry && !state.finished && state.rules && (state.displayNo || state.chapterNo) >= state.rules.story_max_chapters && (
+                <p id="last-chapter" role="status">이번이 마지막 장({state.rules.story_max_chapters}장)이에요.</p>
+            )}
+            {state.kind === 'fairy' && state.finished && (
+                <p id="finished-note" role="status">끝낸 이야기예요. 다시쓰기로 문장을 고칠 수 있어요.</p>
+            )}
 
             {state.loadError ? (
                 <p id="savebar" className="err" role="status">
@@ -387,6 +453,13 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
 
             {state.view === 'write' ? (
                 <div id="write">
+                    {/* 동화: 앞 장의 마지막 문장 (이어지는 느낌용) */}
+                    {state.kind === 'fairy' && state.prevTail && state.prevTail.sentences.length > 0 && (
+                        <div id="prev-tail" className="prev-tail">
+                            <p className="label">지난 {state.prevTail.display_no || state.prevTail.chapter_no}장에서</p>
+                            <p className="text">{state.prevTail.sentences.join(' ')}</p>
+                        </div>
+                    )}
                     <ul id="list" aria-label="지금까지 쓴 문장">
                         {state.loading ? (
                             <li className="empty">불러오는 중…</li>
@@ -433,13 +506,14 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
                             </div>
                         )}
 
-                        <div className="row">
+                        {/* 끝낸 동화는 다시쓰기를 누른 동안에만 입력칸을 보여 준다 */}
+                        {(!state.finished || editing) && <div className="row">
                             <input id="box" ref={boxRef} type="text" maxLength={MAX_CHARS} autoComplete="off" placeholder={placeholder}
                                           value={state.box} disabled={state.busy || state.loading || !!state.loadError}
                                           onChange={(e) => writer.setBox(e.target.value)}
                                           onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) writer.submit() }} />
                             <button type="button" id="go" disabled={state.busy || state.loading || !!state.loadError} onClick={writer.submit}>확인하기</button>
-                        </div>
+                        </div>}
 
                         {state.notice && <p id="msg">{state.notice}</p>}
                         {state.shown && <p id="shown">{state.shown}</p>}
@@ -456,7 +530,21 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
 
                         {state.dbMode && <p className="note" id="unsaved-note">쓰던 문장은 잠시 멈추면 임시저장돼요. 다시 들어오면 이어서 쓸 수 있어요.</p>}
                         <div className="actions">
-                            <button type="button" id="finish" disabled={state.busy || written.length === 0} onClick={writer.finish}>다 썼어요</button>
+                            {state.kind === 'fairy' ? (
+                                <>
+                                    {state.entry && (
+                                        <>
+                                            <button type="button" id="prev-chapter" disabled={state.busy || !nav.prev} onClick={goPrev}>← 이전 장</button>{' '}
+                                            <button type="button" id="next-chapter" disabled={state.busy || !nav.next} onClick={goNext}>다음 장 →</button>{' '}
+                                        </>
+                                    )}
+                                    {writer.canFinish() && (
+                                        <button type="button" id="finish-story" disabled={state.busy} onClick={writer.openFinish}>이야기 끝내기</button>
+                                    )}
+                                </>
+                            ) : (
+                                <button type="button" id="finish" disabled={state.busy || written.length === 0} onClick={writer.finish}>다 썼어요</button>
+                            )}
                             <span className="hint" id="hint">{state.busy ? '검사·교정 중에는 다른 줄을 고칠 수 없어요' : ''}</span>
                         </div>
                     </section>

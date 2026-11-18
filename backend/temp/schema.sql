@@ -65,6 +65,8 @@ CREATE TABLE books (
   user_id     BIGINT UNSIGNED NOT NULL,
   kind        ENUM('diary','fairy') NOT NULL COMMENT '종류: 일기/동화',
   fairy_topic_id BIGINT UNSIGNED NULL COMMENT '동화: 책 만들 때 고른 주제. NULL = 자유 주제 (일기는 늘 NULL)',
+  finished_at  DATETIME NULL COMMENT '동화: 이야기 끝내기를 누른 시각 (NULL = 아직 쓰는 중)',
+  finish_asked INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '동화: 끝낼지 물어보고 아이가 이어 쓰기를 고른 마지막 장 구간 (3·6·9)',
   title       VARCHAR(60)  NOT NULL COMMENT '제목 (일기는 동물 이름)',
   cover       VARCHAR(20)  NULL COMMENT '표지/동물 모양 (양, 알파카 등)',
   visibility  ENUM('full','stats') NOT NULL DEFAULT 'stats' COMMENT '공개여부: 원문 공개/통계만 (협의 필요)',
@@ -81,6 +83,7 @@ CREATE TABLE entries (
   id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   book_id      BIGINT UNSIGNED NOT NULL,
   diary_date   DATE NULL COMMENT '일기 날짜: 한 책 안에서 하루 = 글 하나 (동화는 NULL)',
+  chapter_no   INT UNSIGNED NULL COMMENT '동화: 몇 장인지 (1~10). 일기는 NULL',
   status       ENUM('writing','done') NOT NULL DEFAULT 'writing' COMMENT '작성상태: 문장을 고치면 writing, 이야기 저장하기를 누르면 done',
   draft_text   TEXT NULL COMMENT '임시입력: 검사 전 입력 중인 문장 (덮어쓰기)',
   draft_saved_at DATETIME NULL COMMENT '임시저장시각',
@@ -95,6 +98,7 @@ CREATE TABLE entries (
   day_done_at  DATETIME NULL COMMENT '일기 하루치(기준 문장 수) 처음 달성 시각. 지난 날짜는 기준 일수 안에 채웠을 때만 (reward_rules.py)',
   PRIMARY KEY (id),
   UNIQUE KEY uq_entries_book_date (book_id, diary_date),  -- 같은 책, 같은 날짜의 글은 하나만 (NULL은 여러 개 가능)
+  UNIQUE KEY uq_entries_chapter (book_id, chapter_no),     -- 동화: 같은 책, 같은 장의 글은 하나만 (일기의 NULL은 여러 개 가능)
   CONSTRAINT fk_entries_book FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='글';
 

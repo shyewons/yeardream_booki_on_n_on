@@ -22,8 +22,13 @@
 //     주제 바꾸기는 entry.topic_change_max 개 문장까지만 (지금은 첫 문장을 쓰기 전에만) → PUT /api/books/{책}/topic.
 //     문장의 주제 번호(sentences.fairy_topic_id)는 서버가 책에서 넣는다 (여기서는 보내지 않는다).
 //
-//   이야기 완성 권유: 동화를 rules.story_done_min_sentences 줄 이상 쓰고 저장하기를 안 누른 채 나가려 하면
-//     화면 안에서 '이야기를 완성할까요?'를 묻는다 (askComplete). 완성 보상은 저장하기를 눌러야 받는다.
+//   동화 장: 동화 책 하나 = 이야기 하나, 이야기는 장(1~10장)으로 나뉘고 장마다 글 하나다 (서버 books_repo.py '동화 장').
+//     date 자리에 'ch3'(3장) · 'new'(새 장) 가 오면 그 장을 연다 (openBody). 없으면 마지막 장.
+//     앞 장의 마지막 문장(prevTail)을 보여 주고, 10장이면 '마지막 장' 안내를 띄운다.
+//   이야기 끝내기: 3문장 이상 쓴 장이 rules.story_finish_min_chapters 개 이상이면 '이야기 끝내기'를 할 수 있다 (openFinish).
+//     나갈 때(askComplete) 3·6·9장째를 채웠으면 한 번씩, 10장을 채웠으면 매번 '끝낼까요?'를 묻는다.
+//     '다음에 이어 쓸래요'를 고르면 그 구간은 서버에 적어 두고 다시 묻지 않는다 (finish-later).
+//     끝낸 이야기는 다시쓰기만 된다 (새 문장 · 지우기는 막는다. 서버도 막는다).
 //
 // 쓰는 법:  const w = createWriter({ book, date, practice, onSaved, onAuthError, onDateChange })
 //          w.subscribe(fn) / w.getSnapshot()  → 화면이 상태를 읽는다 (useSyncExternalStore)
@@ -37,6 +42,15 @@ const UNDO_SECONDS = 5      // 문장을 지운 뒤 '되돌리기'를 보여 주
 const track = (event, data) => trackEvent(event, data, 'write')
 const short = (e) => String((e && e.message) || e).slice(0, 200)
 const day10 = (v) => (v ? String(v).slice(0, 10) : null)
+
+// 글 열기 요청 본문: 일기 날짜('2026-11-16') · 동화 장('ch3') · 새 장('new') · 없음(동화는 마지막 장)
+export function openBody(target) {
+    if (!target) return {}
+    if (target === 'new') return { new_chapter: true }
+    const m = /^ch(\d+)$/.exec(String(target))
+    if (m) return { chapter: Number(m[1]) }
+    return { date: target }
+}
 
 export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     const dbMode = !practice
@@ -77,7 +91,15 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         undo: null,               // 되돌리기 { seq, text, busy, error } (UNDO_SECONDS 동안만)
         draft: null,              // 쓰던 문장 임시저장 표시 { status: 'saved'|'error', at: 'HH:MM' } (없으면 null)
         rules: null,              // 보상 기준 숫자 (서버 reward_rules.py 의 public(). 글을 열 때 받는다)
-        completeAsk: false,       // 동화: '이야기를 완성할까요?'를 묻고 있는지
+        chapterNo: null,          // 동화: 지금 쓰는 장의 DB 번호 (글을 열 때 쓴다)
+        displayNo: null,          // 동화: 화면에 보이는 장 번호 (문장을 다 지운 장을 건너뛰고 센다)
+        story: null,              // 동화: 장 목록 · 끝내기 정보 (서버 _story)
+        prevTail: null,           // 동화: 앞 장의 마지막 문장들 { chapter_no, sentences }
+        finished: false,          // 동화: 이야기를 끝냈는지 (끝낸 뒤에는 다시쓰기만)
+        finishAsk: null,          // 동화: '이야기를 끝낼까요?'를 묻고 있으면 { upto(3·6·9) | last(10장) | from: 'leave' | 'button' }
+        finishSaving: false,
+        finishError: '',
+        nextAsk: false,           // 동화: '다음 장을 쓸까요?'를 묻고 있는지
     }
 
     // ── 화면에 보이지 않는 상태 ──
@@ -362,7 +384,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         st.busy = true
         emit()
         try {
-            const r = await api(`/api/books/${encodeURIComponent(book)}/entries`, { method: 'POST', body: date ? { date } : {} })
+            const r = await api(`/api/books/${encodeURIComponent(book)}/entries`, { method: 'POST', body: openBody(date) })
             if (disposed || run !== bootRun) return
             st.entry = { id: r.entry.id, date: day10(r.entry.date), status: r.entry.status }
             st.bookTitle = r.book.title
@@ -372,9 +394,14 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             st.loading = false
             st.busy = false
             restoreDraft(r.entry)
-            if (st.kind === 'fairy') {                      // 동화: 책의 주제 (새 책 만들기에서 고름. 없으면 자유 주제)
+            if (st.kind === 'fairy') {                      // 동화: 책의 주제 (새 책 만들기에서 고름. 없으면 자유 주제) · 장
                 setTopic(r.entry.topic || null)
                 st.topicChangeMax = r.entry.topic_change_max === undefined ? 0 : r.entry.topic_change_max
+                st.chapterNo = r.entry.chapter_no || 1
+                st.displayNo = r.entry.display_no || st.chapterNo
+                st.story = r.story || null
+                st.prevTail = r.prev_tail || null
+                st.finished = !!(r.story && r.story.finished)
             }
             track('page_open', { mode: 'db', book, date, entry: st.entry.id, kind: st.kind, status: st.entry.status, sentences: st.sentences.length })
             focus()
@@ -444,7 +471,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     }
 
     function startInsert(id) {
-        if (st.busy || st.deletingId !== null) return
+        if (st.busy || st.deletingId !== null || st.finished) return
         const i = st.sentences.findIndex((x) => x.id === id)
         if (i < 0) return
         track('insert_start', { at: i + 1 })
@@ -457,7 +484,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     }
 
     function moveSentence(id, dir) {
-        if (st.busy || st.deletingId !== null) return
+        if (st.busy || st.deletingId !== null || st.finished) return
         const i = st.sentences.findIndex((x) => x.id === id)
         const j = i + dir
         if (i < 0 || j < 0 || j >= st.sentences.length) return
@@ -693,6 +720,11 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
 
     function submit() {
         if (st.busy || st.deletingId !== null) return
+        if (st.finished && st.editingId === null) {        // 끝낸 이야기: 새 문장은 쓸 수 없다 (다시쓰기만)
+            st.notice = '끝낸 이야기는 고쳐 쓰기만 할 수 있어요. 고칠 문장의 다시쓰기를 눌러 주세요.'
+            emit()
+            return
+        }
         carried = []
         syncDraft(true, draftNow())                       // 검사 · 교정에 들어가기 전에 쓴 문장을 먼저 임시저장한다
         run([])
@@ -713,7 +745,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     // 지울 수 있는 줄: 저장이 끝난 줄. 다시쓰기 중인 줄, 검사 · 교정 · 표현 선택 중, 다른 줄을 지우는 중에는 못 지운다.
     // 저장이 안 된 줄이 하나라도 있으면 막는다 (지우면 뒤 줄의 순서가 바뀌는데, 저장 안 된 줄은 순서로 저장되기 때문).
     function canDelete(s) {
-        return dbMode && !!st.entry && !st.busy && !st.expr && st.view === 'write' && st.deletingId === null
+        return dbMode && !!st.entry && !st.finished && !st.busy && !st.expr && st.view === 'write' && st.deletingId === null
             && !!s && !!s.sid && s.saveState === 'saved' && !s.work && s.id !== st.editingId
             && !st.sentences.some((x) => x.original && x.saveState !== 'saved')
     }
@@ -855,29 +887,129 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         }
     }
 
-    // ── 이야기 완성 권유 (동화) ──
-    // 저장하기를 안 누른 채 나가려 할 때, 문장이 완성 기준(rules.story_done_min_sentences) 이상이면 화면 안에서 묻는다.
-    // 물어봤으면 true (화면은 나가지 않고 기다린다). 완성 보상은 '이야기 저장하기'를 눌러야 받기 때문이다.
+    // ── 이전 장 · 다음 장 (동화) ──
+    // 글쓰기 화면에서 장 사이를 오간다. 이미 있는 장으로는 바로, 새 장은 먼저 묻는다 (askNext).
+    // 문장을 다 지운 장은 건너뛴다. 끝낸 이야기도 있는 장끼리는 오갈 수 있다 (새 장은 안 된다).
+    // 돌려주는 값: { prev, next } 각각 { target: 'ch4'(App 의 writeDate 자리), isNew: 새로 만드는 장인지, display: 화면 번호 } 또는 null
+    // 'new' 대신 장 번호로 넘기는 이유: 'new' 로 연 장에서 다시 'new' 를 넘기면 App 의 key 가 같아 화면이 새로 열리지 않는다.
+    // (서버는 문장이 있는 마지막 장의 바로 다음 번호면 그 장을 만든다)
+    function chapterNav() {
+        const none = { prev: null, next: null }
+        if (!dbMode || st.kind !== 'fairy' || !st.entry) return none
+        const all = st.story ? st.story.chapters : []
+        const shown = all.filter((c) => c.sentence_count > 0 || c.chapter_no === st.chapterNo)
+        const i = shown.findIndex((c) => c.chapter_no === st.chapterNo)
+        const go = (c) => ({ target: `ch${c.chapter_no}`, isNew: false, display: c.display_no })
+        const prev = i > 0 ? go(shown[i - 1]) : null
+        let next = i >= 0 && i < shown.length - 1 ? go(shown[i + 1]) : null
+        if (!next && !st.finished && written().length > 0) {          // 마지막 장: 문장이 있으면 새 장 (10장까지)
+            const max = st.rules ? st.rules.story_max_chapters : 10
+            const writtenChapters = all.filter((c) => c.sentence_count > 0 && c.chapter_no !== st.chapterNo).length + 1
+            if (writtenChapters < max) {
+                const emptyAfter = all.find((c) => c.chapter_no > st.chapterNo && c.sentence_count === 0)   // 뒤에 비어 있는 장이 있으면 그 장에 쓴다
+                const lastNo = Math.max(st.chapterNo, ...all.map((c) => c.chapter_no))
+                next = { target: `ch${emptyAfter ? emptyAfter.chapter_no : lastNo + 1}`, isNew: true, display: (st.displayNo || 1) + 1 }
+            }
+        }
+        return { prev, next }
+    }
+    function askNext() {
+        if (st.busy || !chapterNav().next) return
+        track('next_chapter_ask', { chapter: st.chapterNo })
+        st.nextAsk = true
+        emit()
+    }
+    function closeNext() {
+        if (!st.nextAsk) return
+        st.nextAsk = false
+        emit()
+    }
+
+    // ── 이야기 끝내기 (동화) ──
+    // 장별 문장 수: 지금 장은 화면에 쓴 문장 수로 센다 (방금 쓴 문장까지 바로 반영)
+    function storyQualified() {
+        const rules = st.rules || {}
+        const min = rules.story_chapter_min_sentences || 3
+        const chapters = st.story ? st.story.chapters : []
+        let n = 0
+        let current = false
+        for (const c of chapters) {
+            let count = c.sentence_count
+            if (c.chapter_no === st.chapterNo) {
+                current = true
+                count = written().length
+            }
+            if (count >= min) n += 1
+        }
+        if (!current && written().length >= min) n += 1
+        return n
+    }
+    function canFinish() {
+        const need = st.rules ? st.rules.story_finish_min_chapters : null
+        return dbMode && st.kind === 'fairy' && !!st.entry && !st.finished && !!need && storyQualified() >= need
+    }
+    // 나갈 때 물을지: 3·6·9장째를 채웠고 아직 '이어 쓸래요'를 안 고른 구간이면 그 구간, 10장을 채웠으면 매번
+    function finishPrompt() {
+        if (!canFinish()) return null
+        const rules = st.rules || {}
+        const max = rules.story_max_chapters || 10
+        if ((st.displayNo || st.chapterNo) >= max && written().length >= (rules.story_chapter_min_sentences || 3)) return { last: true }
+        const asked = st.story ? st.story.finish_asked || 0 : 0
+        const q = storyQualified()
+        const due = (rules.story_finish_ask_at || []).filter((m) => q >= m && m > asked)
+        return due.length ? { upto: Math.max(...due) } : null
+    }
+    // 나가기 전에 부른다. 물어봤으면 true (화면은 나가지 않고 기다린다)
     function askComplete() {
-        const need = st.rules ? st.rules.story_done_min_sentences : null
-        if (!dbMode || st.kind !== 'fairy' || !st.entry || st.entry.status === 'done' || st.busy || leaving || !need) return false
-        if (written().length < need) return false
-        track('complete_offer', { sentences: written().length })
-        st.completeAsk = true
+        if (st.busy || leaving) return false
+        const p = finishPrompt()
+        if (!p) return false
+        track('finish_offer', { ...p, from: 'leave', chapter: st.chapterNo, qualified: storyQualified() })
+        st.finishAsk = { ...p, from: 'leave' }
+        st.finishError = ''
         emit()
         return true
     }
-    function closeComplete(how) {
-        if (!st.completeAsk) return
-        track('complete_offer_close', { how })
-        st.completeAsk = false
+    // '이야기 끝내기' 버튼
+    function openFinish() {
+        if (!canFinish() || st.busy) return
+        track('finish_offer', { from: 'button', chapter: st.chapterNo, qualified: storyQualified() })
+        st.finishAsk = { from: 'button' }
+        st.finishError = ''
         emit()
     }
-    function completeNow() {
-        track('complete_offer_yes', { sentences: written().length })
-        st.completeAsk = false
-        st.view = 'all'                                   // 전체 글 화면에서 저장한다: 실패하면 그 화면에 이유와 '다시 저장하기'가 보인다
-        saveStory()                                       // 저장되면 onSaved 로 글 보기 화면으로 넘어간다
+    // how: later(다음에 이어 쓸래요) · stay(계속 쓸래요) · esc
+    function closeComplete(how) {
+        const ask = st.finishAsk
+        if (!ask) return
+        track('finish_offer_close', { how, upto: ask.upto || null, last: !!ask.last })
+        if (how === 'later' && ask.upto) {
+            if (st.story) st.story = { ...st.story, finish_asked: Math.max(st.story.finish_asked || 0, ask.upto) }
+            api(`/api/books/${encodeURIComponent(book)}/finish-later`, { method: 'POST', body: { upto: ask.upto } })
+                .catch((e) => { authFailed(e) })            // 못 적어도 다음에 한 번 더 물을 뿐이다
+        }
+        st.finishAsk = null
+        st.finishError = ''
+        emit()
+    }
+    async function completeNow() {
+        if (st.finishSaving) return
+        st.finishSaving = true
+        st.finishError = ''
+        emit()
+        try {
+            if (!(await retrySaves())) throw new Error('저장되지 않은 문장이 있어요.')
+            await api(`/api/books/${encodeURIComponent(book)}/finish`, { method: 'POST' })
+            track('story_finished', { entry: st.entry.id, chapter: st.chapterNo, qualified: storyQualified() })
+            leaving = true
+            onSaved(st.entry.id)
+        } catch (e) {
+            if (authFailed(e)) return
+            st.finishError = `이야기를 끝내지 못했어요. 쓴 이야기는 그대로 있어요. (${e.message})`
+            st.finishSaving = false
+            track('story_finish_fail', { message: short(e) })
+            emit()
+        }
     }
 
     // 나가도 되는지: 쓰던 글자나 저장 안 된 문장이 있으면 화면이 한 번 물어본다
@@ -906,7 +1038,8 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         openTopics, chooseTopic, closeTopics, topicChangeable, pickExpr, confirmExpr, retryExpr, skipExpr,
         toggleFix(id, open) { const s = st.sentences.find((x) => x.id === id); if (s && !!s.openFix !== open) { s.openFix = open; emit() } },
         finish, backToWrite, restart, saveStory, unsavedWork,
-        askComplete, closeComplete, completeNow,
+        askComplete, openFinish, canFinish, closeComplete, completeNow,
+        chapterNav, askNext, closeNext,
         noteLeave(info) { track('leave_prompt', info) },
         noteDateChange(from, to) { track('date_change', { from, to }) },
     }

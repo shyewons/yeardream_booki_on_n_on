@@ -121,7 +121,7 @@ def list_books(user_id, page=1, size=None):
 
 def get_book(user_id, book_id):
     rows = db.query(
-        "SELECT id, kind, title, cover FROM books WHERE id = :bid AND user_id = :uid",
+        "SELECT id, kind, title, cover, finished_at FROM books WHERE id = :bid AND user_id = :uid",
         {"bid": book_id, "uid": user_id},
     )
     return rows[0] if rows else None
@@ -164,12 +164,17 @@ def create_book(user_id, kind, title, fairy_topic_id=None):
 _VISIBLE = "(EXISTS (SELECT 1 FROM sentences s2 WHERE s2.entry_id = e.id AND s2.seq IS NOT NULL) OR e.draft_text IS NOT NULL)"
 
 
-# ── 책 안의 글 목록 (일기: 날짜별, 최신 날짜부터 / 동화: 이야기 한 편) ─────────────
+# ── 책 안의 글 목록 (일기: 날짜별, 최신 날짜부터 / 동화: 장 목록, 1장부터) ─────────────
 def list_entries(user_id, book_id, page=1, size=None):
-    """책이 없거나 내 책이 아니면 None."""
+    """책이 없거나 내 책이 아니면 None. 동화는 장 목록(story_chapters)을 돌려준다 (쪽 나누기 없음, 최대 10장)."""
     book = get_book(user_id, book_id)
     if book is None:
         return None
+    if book["kind"] == "fairy":
+        story = _story(db, book_id)
+        items = [c for c in story["chapters"] if c["visible"]]
+        return {"book": book, "items": items, "writing": None, "story": story, "rules": rules.public(),
+                **_meta(len(items), 1, max(1, len(items)))}
     size = _size(size, PAGE_SIZE_ENTRIES)
     total = db.query(f"SELECT COUNT(*) AS n FROM entries e WHERE e.book_id = :bid AND {_VISIBLE}", {"bid": book_id})[0]["n"]
     rows = db.query(
@@ -200,7 +205,7 @@ def get_entry(user_id, entry_id):
     """글이 없거나 내 글이 아니면 None. 문장은 순서대로, 교정 항목은 파이프라인 응답과 같은 이름으로 붙인다."""
     rows = db.query(
         """SELECT e.id, e.book_id, e.diary_date, e.status, e.draft_text, e.draft_saved_at, e.draft_mode, e.draft_seq,
-                  e.saved_at, e.edited_at, e.created_at, e.day_done_at,
+                  e.saved_at, e.edited_at, e.created_at, e.day_done_at, e.chapter_no,
                   b.kind AS book_kind, b.title AS book_title
              FROM entries e
              JOIN books b ON b.id = e.book_id
@@ -257,11 +262,15 @@ def get_entry(user_id, entry_id):
         "corrections": by_sentence.get(s["id"], []),
     } for s in sents]
 
-    # 동화 주제: 책에 저장된 주제 (책 만들 때 고름). None 이면 자유 주제
-    topic, changeable = None, False
+    # 동화: 책의 주제(책 만들 때 고름, None 이면 자유 주제) · 장 정보 · 앞 장의 끝 문장
+    topic, changeable, story, chapter_no, display_no, prev_tail = None, False, None, None, None, None
     if e["book_kind"] == "fairy":
         topic = _book_topic(db, e["book_id"])
-        changeable = _topic_changeable(len(sents))
+        story = _story(db, e["book_id"])
+        changeable = _topic_changeable(sum(c["sentence_count"] for c in story["chapters"]))   # 책 전체 문장 수로 본다
+        chapter_no = e["chapter_no"] or 1                                                     # 장 번호가 없는 예전 이야기는 1장
+        display_no = next((c["display_no"] for c in story["chapters"] if c["id"] == e["id"]), None) or chapter_no
+        prev_tail = _prev_tail(story, chapter_no)
 
     return {
         "nav": _neighbors(e),
@@ -273,18 +282,24 @@ def get_entry(user_id, entry_id):
                   "day_done_at": e["day_done_at"],                                  # 일기 하루치를 처음 채운 시각 (없으면 None)
                   "topic": topic,                                                   # 동화: 책의 주제 {id, title, prompt} 또는 None(자유 주제)
                   "topic_changeable": changeable,                                   # 동화: 지금 주제를 바꿀 수 있는지
-                  "topic_change_max": TOPIC_CHANGE_MAX_SENTENCES},                  # 동화: 문장이 몇 개까지일 때 바꿀 수 있는지 (None = 언제나)
+                  "topic_change_max": TOPIC_CHANGE_MAX_SENTENCES,                   # 동화: 문장이 몇 개까지일 때 바꿀 수 있는지 (None = 언제나)
+                  "chapter_no": chapter_no,                                         # 동화: DB 장 번호 (글을 열 때 쓴다. 일기는 None)
+                  "display_no": display_no},                                        # 동화: 화면에 보이는 장 번호 (빈 장을 건너뛰고 센다)
+        "story": story,                                                             # 동화: 장 목록 · 끝내기 정보 (_story). 일기는 None
+        "prev_tail": prev_tail,                                                     # 동화: 앞 장의 마지막 문장들 {chapter_no, entry_id, sentences} (이어지는 느낌용, 없으면 None)
         "sentences": sentences,
         "rules": rules.public(),                                                    # 보상 기준 숫자 (reward_rules.py)
     }
 
 
 def _neighbors(e):
-    """같은 책 안의 이전 이야기(더 오래된 글) · 다음 이야기(더 새 글) 번호. 없으면 None. 목록에 보이는 글만 센다."""
+    """같은 책 안의 이전 이야기(더 오래된 글) · 다음 이야기(더 새 글) 번호. 없으면 None. 목록에 보이는 글만 센다.
+    일기는 날짜 순서, 동화는 장 번호 순서 (이전 장 · 다음 장)."""
     if e["diary_date"] is not None:
         older, newer, order, p = "e.diary_date < :v", "e.diary_date > :v", "e.diary_date", {"v": str(e["diary_date"])[:10]}
     else:
-        older, newer, order, p = "e.id < :v", "e.id > :v", "e.id", {"v": e["id"]}
+        ch = "COALESCE(e.chapter_no, 1)"
+        older, newer, order, p = f"{ch} < :v", f"{ch} > :v", ch, {"v": e.get("chapter_no") or 1}
     p["bid"] = e["book_id"]
 
     def one(cond, direction):
@@ -311,7 +326,8 @@ def get_entry_by_date(user_id, book_id, date_iso):
 
 # ═════════════════════════════════════════════════════════════════════════
 #  쓰기 (글 열기/만들기 · 문장 저장 · 이야기 저장하기)
-#  규칙: 하루 = 글 하나 / 문장을 추가·수정하면 상태는 writing, '이야기 저장하기'를 누르면 done
+#  규칙: 일기 하루 = 글 하나 · 동화 한 장 = 글 하나 / 문장을 추가·수정하면 상태는 writing, '이야기 저장하기'를 누르면 done
+#        (동화는 '이야기 끝내기'(finish_story)가 모든 장을 done 으로 바꾸고, 끝낸 뒤 고쳐도 done 을 유지한다)
 #        edited_at 은 문장 내용이 바뀔 때만, saved_at 은 저장하기를 누를 때만 갱신 / 시각은 앱이 한국 시간으로 넣는다
 #
 #  문장 기록은 지우지 않는다 (통계 · 보호자 확인용).
@@ -343,13 +359,19 @@ def _own_entry(tx, user_id, entry_id):
     return rows[0] if rows else None
 
 
-def open_entry(user_id, book_id, day=None):
+def open_entry(user_id, book_id, day=None, chapter=None, new_chapter=False):
     """글을 열거나(이미 있으면) 만든다. 책이 없거나 내 책이 아니면 None.
-    일기는 날짜(기본: 오늘, 한국 시간)로 하루에 하나, 동화는 책 하나에 이야기 한 편이다.
+    일기는 날짜(기본: 오늘, 한국 시간)로 하루에 하나.
+    동화는 장(chapter)마다 글 하나다 (아래 '동화 장' 참고):
+      chapter=3         3장을 연다 (없는 장이면 400. 장이 하나도 없을 때의 1장 · 문장이 있는 마지막 장의 바로 다음 장은 만든다)
+      new_chapter=True  다음 장을 만든다 (마지막 장이 비어 있으면 그 장을 그대로 연다. 끝낸 이야기 · 10장이 넘으면 400)
+      둘 다 없음         마지막 장을 연다 (없으면 1장을 만든다)
     돌려주는 값은 get_entry 와 같은 모양에 "created"(방금 만들었는지)를 더한 것이다."""
     book = get_book(user_id, book_id)
     if book is None:
         return None
+    if book["kind"] == "fairy":
+        return _open_chapter(user_id, book, chapter, new_chapter)
     diary_date = None
     if book["kind"] == "diary":
         if day in (None, ""):
@@ -389,6 +411,195 @@ def open_entry(user_id, book_id, day=None):
             raise db.DBUnavailable("글을 여는 중에 문제가 생겼어요. 잠시 후 다시 해 주세요.")
         eid = rows[0]["id"]
     return {"created": created, **get_entry(user_id, eid)}
+
+
+# ── 동화 장 ───────────────────────────────────────────────────────────────────
+# 동화 책 하나에 이야기 하나, 이야기는 장(1장 ~ 10장)으로 나뉜다. 장 하나 = 글(entries) 하나 (entries.chapter_no).
+#   화면: 한 장 = 한 쪽. 장 첫머리와 새 장 쓰기 화면에 앞 장의 마지막 문장을 살짝 보여 준다 (_prev_tail)
+#   새 장: 목록의 '새 장 쓰기'. 마지막 장을 다른 날 이어 쓸 때는 화면이 '이어 쓸지 · 새 장을 쓸지' 묻는다
+#   빈 장: 문장을 다 지운 장은 목록에서 숨기고 번호는 그대로 둔다 (이미 받은 보상과 번호가 어긋나지 않게)
+#   끝내기: 3문장 이상 쓴 장이 STORY_FINISH_MIN_CHAPTERS 개 이상이면 '이야기 끝내기'(books.finished_at).
+#           끝낸 이야기는 다시쓰기(고쳐 쓰기)만 된다: 새 장 · 새 문장 · 위에 넣기 · 지우기 · 순서 바꾸기는 400
+#   끝낼지 묻기: 3·6·9장째를 채웠을 때 한 번씩 (아이가 '다음에 이어 쓸래요'를 고르면 books.finish_asked 에 그 구간을 적는다)
+#           10장은 채운 뒤 나갈 때마다 묻는다. 묻는 판단은 화면이 story 정보로 한다 (writer.js)
+# 장 번호가 없는 예전 동화 글(chapter_no NULL)은 1장으로 본다.
+FINISHED_MSG = "끝낸 이야기는 고쳐 쓰기만 할 수 있어요."
+
+
+def _story(q, book_id):
+    """동화 책의 장 목록과 끝내기 정보. q 는 db 또는 트랜잭션(tx).
+    chapters: [{id, chapter_no, display_no, sentence_count, first, status, edited_at, last_written, visible, qualified}] (장 번호 순서)
+      chapter_no  DB 의 장 번호 (글을 열 때 쓰는 번호. 빈 장을 숨겨도 바뀌지 않는다)
+      display_no  화면에 보이는 번호: 숨긴 빈 장을 건너뛰고 1장부터 다시 센다 (1 · 3장만 있으면 화면은 1 · 2장).
+                  숨긴 빈 장은 None. 비어 있어도 마지막 장(지금 쓰기 시작한 장)은 번호를 받는다
+      visible     목록에 보이는 장 (문장이 있거나 쓰던 문장이 있다)
+      qualified   3문장 이상 쓴 장 (보상 · 끝내기에 세는 장)
+    보상과 장 수 제한(STORY_MAX_CHAPTERS)은 장 번호가 아니라 개수로 센다 (번호를 다시 매겨도 받은 보상과 어긋나지 않는다)."""
+    b = q.query("SELECT finished_at, finish_asked FROM books WHERE id = :bid", {"bid": book_id})
+    b = b[0] if b else {"finished_at": None, "finish_asked": 0}
+    rows = q.query(
+        """SELECT e.id, COALESCE(e.chapter_no, 1) AS chapter_no, e.status, e.edited_at, e.draft_text,
+                  (SELECT COUNT(*) FROM sentences s WHERE s.entry_id = e.id AND s.seq IS NOT NULL) AS n,
+                  (SELECT s.revised FROM sentences s WHERE s.entry_id = e.id AND s.seq = 1) AS first,
+                  (SELECT MAX(s.written_at) FROM sentences s WHERE s.entry_id = e.id AND s.seq IS NOT NULL) AS last_written
+             FROM entries e
+            WHERE e.book_id = :bid
+            ORDER BY chapter_no, e.id""", {"bid": book_id})
+    chapters = []
+    for r in rows:
+        if chapters and chapters[-1]["chapter_no"] == r["chapter_no"]:
+            continue                                     # 예전 데이터에 같은 장 글이 둘이면 앞의 것만 쓴다
+        n = int(r["n"])
+        chapters.append({"id": r["id"], "chapter_no": int(r["chapter_no"]), "sentence_count": n,
+                         "first": r["first"], "status": r["status"], "edited_at": r["edited_at"],
+                         "last_written": r["last_written"],
+                         "visible": n > 0 or r["draft_text"] is not None,
+                         "qualified": n >= rules.STORY_CHAPTER_MIN_SENTENCES})
+    shown = 0
+    for i, c in enumerate(chapters):
+        if c["visible"] or i == len(chapters) - 1:
+            shown += 1
+            c["display_no"] = shown
+        else:
+            c["display_no"] = None                   # 문장을 다 지운 장: 목록 · 이전/다음 장에서 건너뛴다
+    qualified = sum(1 for c in chapters if c["qualified"])
+    written_chapters = sum(1 for c in chapters if c["sentence_count"] > 0)
+    last = chapters[-1] if chapters else None
+    finished = b["finished_at"] is not None
+    return {
+        "chapters": chapters,
+        "qualified": qualified,                                              # 3문장 이상 쓴 장 수
+        "rewards_reached": [m for m in rules.STORY_REWARD_CHAPTERS if qualified >= m],   # 보상 구간 중 채운 것 (받았는지는 reward_claims)
+        "finished": finished,
+        "finished_at": b["finished_at"],
+        "finish_asked": int(b["finish_asked"] or 0),                         # 아이가 '이어 쓸래요'를 고른 마지막 구간
+        "can_finish": not finished and qualified >= rules.STORY_FINISH_MIN_CHAPTERS,
+        "last_chapter": last["chapter_no"] if last else 0,                   # 마지막 장의 DB 번호 (이어서 쓰기)
+        "last_display": last["display_no"] if last else 0,                   # 마지막 장의 화면 번호
+        "written_chapters": written_chapters,                                # 문장이 있는 장 수 (10장 제한에 센다)
+        # 새 장 쓰기: 끝내지 않았고, 문장이 있는 장이 10개 미만이거나 마지막 장이 비어 있을 때 (비어 있으면 그 장을 다시 연다)
+        "can_new_chapter": not finished and (last is None or last["sentence_count"] == 0 or written_chapters < rules.STORY_MAX_CHAPTERS),
+        "max_chapters": rules.STORY_MAX_CHAPTERS,
+    }
+
+
+PREV_TAIL = 2   # 앞 장에서 보여 주는 마지막 문장 수
+
+
+def _prev_tail(story, chapter_no):
+    """chapter_no 보다 앞의 문장이 있는 장 중 가장 가까운 장의 마지막 PREV_TAIL 문장 (최종 문장).
+    {chapter_no, display_no, entry_id, sentences: [...]} 또는 앞 장이 없으면 None."""
+    prev = [c for c in story["chapters"] if c["chapter_no"] < chapter_no and c["sentence_count"] > 0]
+    if not prev:
+        return None
+    c = prev[-1]
+    rows = db.query("""SELECT revised FROM sentences WHERE entry_id = :eid AND seq IS NOT NULL
+                        ORDER BY seq DESC LIMIT :n""", {"eid": c["id"], "n": PREV_TAIL})
+    return {"chapter_no": c["chapter_no"], "display_no": c["display_no"], "entry_id": c["id"],
+            "sentences": [r["revised"] for r in reversed(rows)]}
+
+
+def _open_chapter(user_id, book, chapter, new_chapter):
+    """동화의 장을 열거나 만든다 (open_entry 참고)."""
+    book_id = book["id"]
+    if chapter not in (None, ""):
+        chapter = _opt_int(chapter)
+        if chapter is None or chapter < 1:            # DB 번호는 빈 장을 건너뛰면 10을 넘을 수 있다 (개수 제한은 아래에서)
+            raise BadRequest("장 번호가 맞지 않아요.")
+    else:
+        chapter = None
+
+    def find(tx, no):
+        return tx.query("""SELECT id FROM entries WHERE book_id = :b AND COALESCE(chapter_no, 1) = :c
+                            ORDER BY id LIMIT 1""", {"b": book_id, "c": no})
+
+    def work(tx):
+        story = _story(tx, book_id)
+        if chapter is not None:
+            target = chapter
+        elif new_chapter:
+            if story["finished"]:
+                raise BadRequest("끝낸 이야기에는 새 장을 쓸 수 없어요.")
+            last = story["chapters"][-1] if story["chapters"] else None
+            if last is not None and last["sentence_count"] == 0:
+                return last["id"], False, last["chapter_no"]          # 마지막 장이 비어 있으면 그 장에 쓴다 (빈 장이 쌓이지 않게)
+            if story["written_chapters"] >= rules.STORY_MAX_CHAPTERS:
+                raise BadRequest(f"이야기는 {rules.STORY_MAX_CHAPTERS}장까지 쓸 수 있어요.")
+            target = (last["chapter_no"] if last else 0) + 1
+        else:
+            target = story["last_chapter"] or 1
+        rows = find(tx, target)
+        if rows:
+            return rows[0]["id"], False, target
+        if chapter is not None and target != 1:
+            # 없는 장은 '바로 다음 장'일 때만 만든다 (글쓰기 화면의 '다음 장'): 마지막 장에 문장이 있고, 끝내지 않았을 때
+            last = story["chapters"][-1] if story["chapters"] else None
+            if story["finished"] or last is None or target != last["chapter_no"] + 1 or last["sentence_count"] == 0:
+                raise BadRequest("아직 쓰지 않은 장이에요.")
+            if story["written_chapters"] >= rules.STORY_MAX_CHAPTERS:
+                raise BadRequest(f"이야기는 {rules.STORY_MAX_CHAPTERS}장까지 쓸 수 있어요.")
+        try:
+            eid = tx.insert(
+                "INSERT INTO entries (book_id, diary_date, chapter_no, status, created_at) VALUES (:b, NULL, :c, 'writing', :now)",
+                {"b": book_id, "c": target, "now": _now_str()})
+            return eid, True, target
+        except db.Conflict:                      # 같은 장을 다른 요청이 동시에 먼저 만들었다 → 아래에서 다시 찾는다
+            return None, False, target
+
+    eid, created, target = db.run_in_transaction(work)
+    if eid is None:
+        rows = db.run_in_transaction(lambda tx: find(tx, target))   # 트랜잭션 밖에서 다시 찾는 이유는 open_entry 참고
+        if not rows:
+            raise db.DBUnavailable("글을 여는 중에 문제가 생겼어요. 잠시 후 다시 해 주세요.")
+        eid = rows[0]["id"]
+    return {"created": created, **get_entry(user_id, eid)}
+
+
+def finish_story(user_id, book_id):
+    """'이야기 끝내기': 3문장 이상 쓴 장이 STORY_FINISH_MIN_CHAPTERS 개 이상이면 끝낸다 (books.finished_at).
+    모든 장의 상태를 done 으로 바꾸고 저장 시각을 남긴다. 이미 끝냈으면 그대로 돌려준다. 책이 없거나 내 동화 책이 아니면 None."""
+    def work(tx):
+        b = tx.query("SELECT id, kind FROM books WHERE id = :bid AND user_id = :uid", {"bid": book_id, "uid": user_id})
+        if not b or b[0]["kind"] != "fairy":
+            return None
+        story = _story(tx, book_id)
+        if story["finished"]:
+            return {"finished": True, "changed": False, "story": story}
+        if not story["can_finish"]:
+            raise BadRequest(f"{rules.STORY_CHAPTER_MIN_SENTENCES}문장 이상 쓴 장이 {rules.STORY_FINISH_MIN_CHAPTERS}개가 되면 이야기를 끝낼 수 있어요.")
+        now = _now_str()
+        tx.execute("UPDATE books SET finished_at = :now WHERE id = :bid", {"now": now, "bid": book_id})
+        tx.execute("""UPDATE entries SET status = 'done', saved_at = :now,
+                             draft_text = NULL, draft_saved_at = NULL, draft_mode = NULL, draft_seq = NULL
+                       WHERE book_id = :bid""", {"now": now, "bid": book_id})
+        return {"finished": True, "changed": True, "story": _story(tx, book_id)}
+
+    return db.run_in_transaction(work)
+
+
+def finish_later(user_id, book_id, upto):
+    """끝낼지 물었을 때 '다음에 이어 쓸래요': 그 구간(3·6·9)을 적어 두어 다시 묻지 않는다. 책이 없거나 내 동화 책이 아니면 None."""
+    upto = _opt_int(upto)
+    if upto not in rules.STORY_FINISH_ASK_AT:
+        raise BadRequest("묻는 구간이 맞지 않아요.")
+
+    def work(tx):
+        b = tx.query("SELECT id, kind, finish_asked FROM books WHERE id = :bid AND user_id = :uid", {"bid": book_id, "uid": user_id})
+        if not b or b[0]["kind"] != "fairy":
+            return None
+        if upto > int(b[0]["finish_asked"] or 0):
+            tx.execute("UPDATE books SET finish_asked = :u WHERE id = :bid", {"u": upto, "bid": book_id})
+        return {"finish_asked": max(upto, int(b[0]["finish_asked"] or 0))}
+
+    return db.run_in_transaction(work)
+
+
+def _block_if_finished(tx, entry_id):
+    """끝낸 동화 이야기면 BadRequest (다시쓰기를 뺀 편집을 막는다)."""
+    r = tx.query("""SELECT b.finished_at FROM entries e JOIN books b ON b.id = e.book_id
+                     WHERE e.id = :eid AND b.kind = 'fairy'""", {"eid": entry_id})
+    if r and r[0]["finished_at"] is not None:
+        raise BadRequest(FINISHED_MSG)
 
 
 def _cut(v, n):
@@ -498,8 +709,8 @@ def set_book_topic(user_id, book_id, fairy_topic_id):
 
 
 def _entry_info(tx, entry_id):
-    """문장을 저장할 때 필요한 글 정보: 책 종류(diary/fairy) · 책의 동화 주제 · 일기 날짜 · 하루치 달성 시각."""
-    return tx.query("""SELECT b.kind, b.fairy_topic_id, e.diary_date, e.day_done_at FROM entries e JOIN books b ON b.id = e.book_id
+    """문장을 저장할 때 필요한 글 정보: 책 종류(diary/fairy) · 책의 동화 주제 · 이야기를 끝냈는지 · 일기 날짜 · 하루치 달성 시각."""
+    return tx.query("""SELECT b.kind, b.fairy_topic_id, b.finished_at, e.diary_date, e.day_done_at FROM entries e JOIN books b ON b.id = e.book_id
                         WHERE e.id = :eid""", {"eid": entry_id})[0]
 
 
@@ -555,6 +766,7 @@ def move_sentence(user_id, entry_id, seq, to):
     def work(tx):
         if not _own_entry(tx, user_id, entry_id):
             return None
+        _block_if_finished(tx, entry_id)
         ids = [r["id"] for r in tx.query("SELECT id FROM sentences WHERE entry_id = :eid AND seq IS NOT NULL ORDER BY seq", {"eid": entry_id})]
         if not (1 <= seq <= len(ids) and 1 <= to <= len(ids)):
             raise BadRequest("문장 순서가 맞지 않아요.")
@@ -584,6 +796,7 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
     data: original, revised, attempt_count, invalid_reasons[], has_correction, correction_mode, expression_choice, corrections[],
           reason (바뀐 이유: edit 다시쓰기 / expr 동화 표현 선택. 없으면 원문이 바뀌었는지로 정한다),
           (동화 주제는 받지 않는다: 새 문장은 책의 주제, 고친 문장은 옛 줄의 주제. 위 '동화 주제 · 일기 하루치' 참고)
+    끝낸 동화 이야기는 다시쓰기만 된다 (새 문장 · 위에 넣기는 BadRequest).
     일기는 저장 뒤 하루치 달성을 확인한다 (_mark_day_done). 결과의 day_done 은 이번 저장으로 처음 달성했는지."""
     if not isinstance(data, dict):
         raise BadRequest("문장 내용이 필요해요.")
@@ -616,6 +829,9 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
             raise BadRequest("앞의 문장이 아직 저장되지 않았어요.")
         cur = next((r for r in rows if r["seq"] == seq), None)
         squeeze = insert and cur is not None and not (cur["original"] == original and cur["revised"] == revised)   # 사이에 끼워 넣는 경우
+        finished = info["kind"] == "fairy" and info["finished_at"] is not None
+        if finished and (cur is None or squeeze):                              # 끝낸 이야기: 새 문장 · 위에 넣기는 안 된다 (다시쓰기만)
+            raise BadRequest(FINISHED_MSG)
         if (cur is None or squeeze) and len(rows) >= MAX_SENTENCES:            # 문장이 하나 늘어나는 저장만 막는다
             raise BadRequest(f"한 글에는 문장을 {MAX_SENTENCES}개까지 쓸 수 있어요.")
         if squeeze:
@@ -646,7 +862,8 @@ def save_sentence(user_id, entry_id, seq, data, insert=False):
                 tx.execute("UPDATE sentences SET expression_choice = :ec WHERE id = :sid", {"ec": choice, "sid": sid})
         if changed:
             _insert_corrections(tx, sid, items)
-            tx.execute("""UPDATE entries SET status = 'writing', edited_at = :now,
+            # 끝낸 이야기는 고쳐도 '완성'을 유지한다 (상태를 writing 으로 돌리면 끝내기가 풀린 것처럼 보인다)
+            tx.execute(f"""UPDATE entries SET status = {"status" if finished else "'writing'"}, edited_at = :now,
                                  draft_text = NULL, draft_saved_at = NULL, draft_mode = NULL, draft_seq = NULL
                            WHERE id = :eid""", {"now": now, "eid": entry_id})
         done_now = _mark_day_done(tx, entry_id, info, now) if changed else None
@@ -676,6 +893,7 @@ def delete_sentence(user_id, entry_id, seq, sentence_id):
     def work(tx):
         if not _own_entry(tx, user_id, entry_id):
             return None
+        _block_if_finished(tx, entry_id)
         cur = tx.query("SELECT id FROM sentences WHERE entry_id = :eid AND seq = :seq", {"eid": entry_id, "seq": seq})
         if not cur or cur[0]["id"] != sentence_id:
             raise Stale("글이 다른 곳에서 바뀌었어요. 글을 다시 열어 주세요.")
@@ -714,6 +932,7 @@ def restore_sentence(user_id, entry_id, sentence_id, seq):
     def work(tx):
         if not _own_entry(tx, user_id, entry_id):
             return None
+        _block_if_finished(tx, entry_id)
         row = tx.query("SELECT id, seq, end_reason FROM sentences WHERE id = :sid AND entry_id = :eid",
                        {"sid": sentence_id, "eid": entry_id})
         if not row:

@@ -1,18 +1,19 @@
 // 작성한 글 조회 화면 (요구사항정의서 차트 - 화면ID 시트 - 11번 화면)
 // GET /api/entries/{글} → 문장과 고친 곳. 이전/다음 이야기, 고쳐쓰기(쓰는 중이면 이어서 쓰기).
 //
-// 문장이 많으면 SENTENCES_PER_PAGE 개씩 쪽을 나눠 보여 준다 (서버에서는 한 번에 받고 화면에서만 나눈다).
-// 동화는 책 하나에 이야기 한 편이라 글 목록이 없다 → '목록으로' · '이전/다음 이야기' 버튼을 내지 않는다.
+// 일기: 문장이 많으면 SENTENCES_PER_PAGE 개씩 쪽을 나눠 보여 준다 (서버에서는 한 번에 받고 화면에서만 나눈다).
+// 동화: 한 장 = 한 쪽. 장 첫머리에 앞 장의 마지막 문장(prev_tail)을 살짝 보여 주고, '이전 장 · 다음 장'으로 넘긴다.
+//       끝낸 이야기는 '고쳐쓰기', 아니면 '이어서 쓰기'로 그 장을 연다.
 // saved 가 참이면 방금 '이야기 저장하기'를 누르고 온 것이라 '저장했어요' 안내를 보여 준다 (10번 화면).
 //
 // 화면을 바꾸는 일은 App.jsx 가 한다. 이 화면은 아래 함수(props)를 부르기만 한다.
 //   onOpenEntry(글 번호)   이전/다음 이야기로
-//   onWrite(날짜 또는 null)   글쓰기 화면으로 (고쳐쓰기 · 이어서 쓰기)
-//   onBack()   글 목록으로        onHome()   목장으로
+//   onWrite(날짜 · 장)   글쓰기 화면으로 (고쳐쓰기 · 이어서 쓰기. 동화는 chapterTarget(장 번호))
+//   onBack()   글 목록으로 (동화는 장 목록)        onHome()   목장으로
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
 
 import { useState } from 'react'
-import { evidenceText, fmtDate, fmtTime } from './format.js'
+import { chapterTarget, evidenceText, fmtDate, fmtTime } from './format.js'
 import { useLoad } from './useLoad.js'
 import LoadError from './LoadError.jsx'
 import Pager from './Pager.jsx'
@@ -28,9 +29,9 @@ export default function PostDetailPage({ entryId, saved = false, onOpenEntry, on
     const isFairy = !!data && data.book.kind === 'fairy'
     const head = (
         <p>
-            {/* 글을 불러오기 전에는 일기인지 동화인지 모르므로 '목장으로'만 보여 준다 */}
-            {data && !isFairy && <><button type="button" onClick={onBack}>← 목록으로</button>{' '}</>}
-            <button type="button" onClick={onHome}>{data && !isFairy ? '목장으로' : '← 목장으로'}</button>
+            {/* 글을 불러오기 전에는 '목장으로'만 보여 준다 */}
+            {data && <><button type="button" onClick={onBack}>← 목록으로</button>{' '}</>}
+            <button type="button" onClick={onHome}>{data ? '목장으로' : '← 목장으로'}</button>
         </p>
     )
     if (error) return <div>{head}<LoadError error={error} what="글" onRetry={retry} onHome={onHome} /></div>
@@ -42,13 +43,14 @@ export default function PostDetailPage({ entryId, saved = false, onOpenEntry, on
     const when = [entry.created_at && `처음 쓴 시각 ${fmtTime(entry.created_at)}`, last && `마지막 수정 ${last}`]
         .filter(Boolean)
         .join(' · ')
-    const writeDate = entry.date ? String(entry.date).slice(0, 10) : null
+    const writeDate = isFairy ? chapterTarget(entry.chapter_no || 1) : entry.date ? String(entry.date).slice(0, 10) : null
+    const done = isFairy ? !!(data.story && data.story.finished) : entry.status === 'done'
     // 이전 이야기 = 더 오래된 글, 다음 이야기 = 더 새 글 (없으면 누를 수 없다)
     // 문장을 쪽으로 나눈다 (마지막 쪽을 넘는 번호가 남아 있으면 마지막 쪽으로 맞춘다)
-    const totalPages = Math.ceil(sentences.length / SENTENCES_PER_PAGE)
+    const totalPages = isFairy ? 1 : Math.ceil(sentences.length / SENTENCES_PER_PAGE)   // 동화는 한 장이 한 쪽
     const sentPage = Math.min(view.entryId === entryId ? view.page : 1, Math.max(1, totalPages))
     const first = (sentPage - 1) * SENTENCES_PER_PAGE
-    const shown = sentences.slice(first, first + SENTENCES_PER_PAGE)
+    const shown = isFairy ? sentences : sentences.slice(first, first + SENTENCES_PER_PAGE)
 
     const near = (text, to) => (
         <button type="button" disabled={!to} onClick={() => onOpenEntry(to)}>{text}</button>
@@ -58,13 +60,16 @@ export default function PostDetailPage({ entryId, saved = false, onOpenEntry, on
         <div>
             {head}
             {saved && <p className="saved" role="status">✔ 이야기를 저장했어요!</p>}
-            {/* 제목: 일기는 날짜, 동화는 날짜가 없으니 책 이름으로 『○○』 (책 이름이 주제 이름 · 문장일 수 있어 '에게 들려준 이야기'는 쓰지 않는다) */}
+            {/* 제목: 일기는 날짜, 동화는 날짜가 없으니 책 이름 『○○』 과 장 번호 (책 이름이 주제 이름 · 문장일 수 있어 '에게 들려준 이야기'는 쓰지 않는다) */}
             <h1>
-                {isFairy ? `『${data.book.title}』` : fmtDate(entry.date)}
-                {' '}[{entry.status === 'done' ? '완성' : '쓰는 중'}]
+                {isFairy ? `『${data.book.title}』 ${entry.display_no || entry.chapter_no || 1}장` : fmtDate(entry.date)}
+                {' '}[{done ? '완성' : '쓰는 중'}]
             </h1>
             <p className="sub">{[isFairy ? '동화' : data.book.title, when].filter(Boolean).join(' · ')}</p>
             {entry.draft_text && <p>쓰다가 멈춘 문장: {entry.draft_text}</p>}
+            {isFairy && data.prev_tail && data.prev_tail.sentences.length > 0 && (
+                <p className="prev-tail" id="prev-tail">지난 {data.prev_tail.display_no || data.prev_tail.chapter_no}장에서: {data.prev_tail.sentences.join(' ')}</p>
+            )}
 
             {sentences.length ? (
                 <ol className="sents" start={first + 1}>
@@ -102,11 +107,11 @@ export default function PostDetailPage({ entryId, saved = false, onOpenEntry, on
             )}
 
             <p className="near">
-                {!isFairy && <>{near('이전 이야기', nav && nav.prev)}{' '}</>}
+                {near(isFairy ? '이전 장' : '이전 이야기', nav && nav.prev)}{' '}
                 <button type="button" onClick={() => onWrite(writeDate)}>
-                    {entry.status === 'done' ? '고쳐쓰기' : '이어서 쓰기'}
+                    {done ? '고쳐쓰기' : '이어서 쓰기'}
                 </button>
-                {!isFairy && <>{' '}{near('다음 이야기', nav && nav.next)}</>}
+                {' '}{near(isFairy ? '다음 장' : '다음 이야기', nav && nav.next)}
             </p>
         </div>
     )
