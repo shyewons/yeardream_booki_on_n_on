@@ -20,7 +20,8 @@
 
 동화 구간 보상 (FR-040)
   - 같은 책에서 3문장 이상 쓴 장 수가 STORY_REWARD_CHAPTERS(3 · 6 · 10)에 닿으면 그 구간을 받을 수 있다
-  - 옷은 책의 동화 주제에 연결된 세트의 구성품. 주제에 옷이 없으면(자유 주제 등) clothes = None 이고 받을 수 없다
+  - 옷은 책의 동화 주제에 연결된 세트의 구성품. 자유 주제('내가 정할래요')도 주제 하나로 보고 세트를 준다
+    (주제가 NULL 인 옛 책도 books_repo 규칙대로 자유 주제로 본다). 주제에 옷이 없으면 clothes = None 이고 받을 수 없다
   - 받는 순간 reward_claims 에 적는다 (책 · 구간이 정해져 있어 미리 적어 둘 필요가 없다)
 
 공통
@@ -161,6 +162,12 @@ def claim_diary(user_id, week_start):
 
 # ── 동화 구간 보상 ──
 
+def _free_topic_id():
+    """자유 주제('내가 정할래요') 줄 번호. 없으면 None. books_repo.FREE_TOPIC_TITLE 과 같이 띄어쓰기를 빼고 비교한다."""
+    rows = db.query("SELECT MIN(id) AS id FROM fairy_topics WHERE REPLACE(title, ' ', '') = '자유주제'")
+    return rows[0]["id"] if rows else None
+
+
 def fairy_reward(user_id, book_id):
     """동화책 한 권의 보상 진행 (FR-040 · FR-045, 장 목록 화면에서 쓴다). 내 동화책이 아니면 None.
       qualified  3문장 이상 쓴 장 수
@@ -177,7 +184,9 @@ def fairy_reward(user_id, book_id):
              FROM reward_claims r JOIN clothes c ON c.id = r.clothes_id
             WHERE r.book_id = :bid AND r.reward_kind = 'fairy'""", {"bid": book_id})}
     topic = book[0]["fairy_topic_id"]
-    sets = {r["reward_order"]: r for r in db.query(
+    if topic is None:                       # 자유 주제 줄이 없을 때 만든 책: NULL 도 자유 주제로 본다 (books_repo 주석)
+        topic = _free_topic_id()
+    sets ={r["reward_order"]: r for r in db.query(
         """SELECT reward_order, id, name, slot, image_url FROM clothes
             WHERE reward_kind = 'fairy' AND fairy_topic_id = :t""", {"t": topic})} if topic else {}
     stages = []

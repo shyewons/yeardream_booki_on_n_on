@@ -1,10 +1,10 @@
 -- 임시 의상 데이터 (2026-11-19, 팀 확인 받은 임시안. 진짜 의상이 정해지면 이 파일을 고친다)
 -- 요구사항: FR-039 일기 주간 보상, FR-040 동화 단계별 구성품, FR-041 옷장
 --
--- 들어가는 것 (모두 40개, 이미지는 아직 없어서 image_url = NULL)
+-- 들어가는 것 (모두 43개, 이미지는 아직 없어서 image_url = NULL)
 --   일기 10개: 주간 목표(5일)를 달성한 순서(reward_order 1~10)대로 받는다. 모든 사용자에게 같은 순서
---   동화 30개: 켜진 동화 주제 10개 × 3구간. 1번째 = 모자, 2번째 = 상의, 3번째 = 신발
---   '자유 주제'는 UI 시안(03D)에 없어서 세트를 넣지 않았다
+--   동화 33개: 켜진 동화 주제 10개 + 자유 주제('내가 정할래요') 1개 × 3구간. 1번째 = 모자, 2번째 = 상의, 3번째 = 신발
+--   자유 주제도 주제 하나로 센다 (2026-11-19 결정). 자유 주제 줄은 is_active = 0 이라 아래에서 따로 넣는다
 --
 -- 보상 기준 숫자는 backend/reward_rules.py 가 기준이다 (WEEK_MIN_DAYS, STORY_REWARD_CHAPTERS).
 --   required_count 는 NOT NULL 이라 같은 숫자(5 / 3·6·10)로 채우지만, 보상 코드는 이 칸을 읽지 않는다.
@@ -74,7 +74,18 @@ FROM (
 ) AS s
 JOIN fairy_topics t ON t.title = s.topic AND t.is_active = 1;
 
+-- ── 자유 주제 세트 ('내가 정할래요'로 만든 책. 추천에는 안 나오는 줄이라 is_active 를 보지 않는다) ──
+-- 제목 비교는 books_repo.FREE_TOPIC_TITLE 과 같이 띄어쓰기를 뺀다
+INSERT INTO clothes (name, slot, reward_kind, reward_order, required_count, fairy_topic_id)
+SELECT s.name, s.slot, 'fairy', s.reward_order, s.required_count, t.id
+FROM (
+              SELECT '꽃 모자' AS name, 'hat' AS slot, 1 AS reward_order, 3 AS required_count
+    UNION ALL SELECT '꽃무늬 셔츠', 'top',   2, 6
+    UNION ALL SELECT '꽃 신발',     'shoes', 3, 10
+) AS s
+JOIN (SELECT MIN(id) AS id FROM fairy_topics WHERE REPLACE(title, ' ', '') = '자유주제') AS t ON t.id IS NOT NULL;
+
 COMMIT;
 
--- 확인: diary 10, fairy 30 이어야 한다
+-- 확인: diary 10, fairy 33 이어야 한다
 SELECT reward_kind, COUNT(*) AS n FROM clothes GROUP BY reward_kind;
