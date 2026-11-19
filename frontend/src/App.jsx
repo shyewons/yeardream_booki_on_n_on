@@ -28,7 +28,7 @@ export default function App() {
     // entryId: 글 리스트에서 고른 글 번호
     const [bookId, setBookId] = useState(null);
     const [listPage, setListPage] = useState(1);
-    // writeDate: 글쓰기 화면에서 쓸 일기 날짜("2026-11-16"). 동화는 null
+    // writeDate: 글쓰기 화면에서 쓸 일기 날짜("2026-11-16"). 동화는 장("ch3" = 3장, "new" = 새 장, null = 마지막 장. format.js 의 chapterTarget)
     // justSaved: 방금 '이야기 저장하기'를 누르고 글 조회로 왔는지 ('저장했어요' 안내 표시용)
     const [entryId, setEntryId] = useState(null);
     const [writeDate, setWriteDate] = useState(null);
@@ -52,7 +52,7 @@ export default function App() {
 
 
     // 글쓰기 버튼을 눌렀을 때 실행할 공통 함수 (글 리스트 · 글 조회 화면에서 같이 쓴다)
-    // date: 일기 날짜("2026-11-16"), 동화는 null
+    // date: 일기 날짜("2026-11-16"), 동화는 장("ch3" · "new" · null)
     // 어느 책인지는 이미 기억해 둔 bookId 를 쓴다.
     const handleWrite = useCallback((date) => {
         setWriteDate(date);
@@ -192,7 +192,7 @@ export default function App() {
                         setPage("postDetail");
                     }}
 
-                    // 글쓰기 버튼: date 는 일기 날짜("2026-11-16"), 동화는 null
+                    // 글쓰기 버튼: date 는 일기 날짜("2026-11-16"), 동화는 장("ch3" · "new" · null)
                     onWrite={handleWrite}
 
                     onHome={() => setPage("home")}

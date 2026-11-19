@@ -1,6 +1,17 @@
 # -*- coding: utf-8 -*-
-"""예시 문장으로 시험 실행:  python -m diary_pipeline"""
-from . import run_diary, to_json
+"""예시 문장으로 시험 실행:  python -m diary_pipeline        (일기 모드)
+                            python -m diary_pipeline story  (동화 모드)"""
+import sys
+
+from . import run_diary, run_story, to_json
+
+if len(sys.argv) > 1 and sys.argv[1] == "story":
+    for text in ["아침에 엄마랑 김밥을 만들었다",          # 맞춤법이 맞음 → story(원문 + 새 표현 2개)
+                 "집에 오니 강아지가 나를 반겼어요",
+                 "동생이 금새 잠이 들었다"]:              # 맞춤법이 틀림 → 일기 모드와 같은 교정
+        print(f"=== [동화] 입력: {text}")
+        print(to_json(run_story({"user_input": text})), "\n")
+    sys.exit()
 
 for text in ["오늘 학교에서 친구랑 재미있게 놀았다", "우리는 할수있다", "몇일 뒤에 방을 깨끗히 치웠다",
              "저녁에 엄마랑 같이 설겆이를 했다",   # 표준어 사정 원칙(제20항) 근거를 찾는지 확인용
