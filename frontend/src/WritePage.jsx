@@ -457,7 +457,8 @@ export default function WritePage({ bookId, bookKind, date, note = null, onBack,
 
     // 일기와 동화가 책 레이아웃을 공유하며, 검사·저장·장 이동은 기존 writer를 사용한다.
     const fairy = state.kind === 'fairy' || (!state.entry && bookKind === 'fairy') || /^(ch\d+|new)$/.test(date || '')
-    if (state.entry || fairy || /^\d{4}-/.test(date || '')) {
+    // 글을 불러오기 전에도 새 화면으로 그린다: 일기 책이면(bookKind) 날짜 없이 열어도(새 책 → 바로 쓰기 · 오늘 일기) 예전 화면이 잠깐 비치지 않게
+    if (state.entry || fairy || bookKind === 'diary' || /^\d{4}-/.test(date || '')) {
         const storyContext = fairy && <>
             {state.finished && <p id="finished-note" role="status" className="ui-description">끝낸 이야기예요. 다시쓰기로 문장을 고칠 수 있어요.</p>}
             {!state.finished && state.rules && (state.displayNo || state.chapterNo) >= state.rules.story_max_chapters && <p id="last-chapter" role="status" className="ui-description">이번이 마지막 장({state.rules.story_max_chapters}장)이에요.</p>}
