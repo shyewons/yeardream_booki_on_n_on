@@ -4,18 +4,20 @@
   - FR-024 이번 주 일기 작성 요일
   - FR-043 다시 살펴볼 맞춤법
   - FR-044 내가 골라 쓴 표현
+  - FR-039 일기 주간 보상 진행 · 받기, 내 캐릭터가 입은 옷 (rewards_repo.py)
 대시보드 안의 화면
   - FR-021 최근 고친 문장
+  - FR-041 캐릭터 옷장 (rewards_repo.wardrobe, /api/wardrobe)
 
 문장을 고치거나 지워도 옛 줄은 지우지 않고 '빠진 줄'로 남는다 (books_repo: seq NULL, ended_at, end_reason).
 교정 항목(corrections)도 그 줄에 그대로 붙어 있어서, 맞춤법 반복 집계와 고친 문장 기록을 여기서 만든다.
-
-아직 안 만든 것: FR-041 캐릭터 옷장, FR-039 일기 주간 보상 (의상 테이블이 아직 없다)
 """
 import datetime
 
 import books_repo
 import db
+import devlog
+import rewards_repo
 
 WEEKDAYS = ("월", "화", "수", "목", "금", "토", "일")
 MAX_EXPRESSIONS = 10        # 내가 골라 쓴 표현: 최근 몇 개까지 보여 줄지
@@ -151,11 +153,23 @@ def recent_fixes(user_id, limit=MAX_RECENT_FIXES):
     return {"items": items}
 
 
+def _optional(fn, user_id):
+    """보상 쪽이 실패해도 대시보드의 나머지는 보이게 한다. 실패하면 None (화면은 그 칸만 '불러오지 못했어요')."""
+    try:
+        return fn(user_id)
+    except Exception as e:                  # 보상 표 · 데이터 문제는 로그로만 남긴다
+        devlog.error("dashboard", e, {"call": fn.__name__})
+        return None
+
+
 def dashboard(user_id):
-    """대시보드 메인 한 번에 (FR-042)."""
+    """대시보드 메인 한 번에 (FR-042).
+    diary_reward · character 는 실패하면 None 이다 (rewards_repo.diary_reward, rewards_repo.character)."""
     return {
         "owner": books_repo.current_nickname(),
         "week": week_diary_days(user_id),
         "spelling": spelling_to_review(user_id),
         "expressions": picked_expressions(user_id),
+        "diary_reward": _optional(rewards_repo.diary_reward, user_id),
+        "character": _optional(rewards_repo.character, user_id),
     }

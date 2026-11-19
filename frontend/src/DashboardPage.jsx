@@ -1,17 +1,24 @@
-// 대시보드 메인 (요구사항정의서 FR-042). 아이와 어른이 같은 화면을 본다.
+// 대시보드 메인 (요구사항정의서 FR-042, 시안 12A · 12D). 아이와 어른이 같은 화면을 본다.
 // GET /api/dashboard → 이번 주 일기 작성 요일(FR-024) · 다시 살펴볼 맞춤법(FR-043) · 내가 골라 쓴 표현(FR-044)
-// 대시보드 안의 화면: 최근 고친 문장(FR-021). 캐릭터 옷장(FR-041)은 아직 준비 중.
+//                      · 일기 주간 선물(FR-039, diary_reward) · 내 캐릭터가 입은 옷(character)
+// POST /api/rewards/diary/claim → 주간 선물 받기 (자동으로 주지 않고 아이가 눌러서 받는다)
+// 대시보드 안의 화면: 최근 고친 문장(FR-021), 캐릭터 옷장(FR-041).
 // 대시보드 안의 화면 이동은 이 파일 안에서 한다 (App.jsx 는 대시보드 하나만 연결).
 
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import RecentFixesPage from './RecentFixesPage.jsx'
+import WardrobePage from './WardrobePage.jsx'
+
+const SLOT_LABEL = { top: '상의', bottom: '하의', hat: '모자', shoes: '신발', gloves: '장갑' }
 
 export default function DashboardPage({ onBack, onAuthError }) {
-  const [view, setView] = useState('main') // 'main' 대시보드 메인 / 'fixes' 최근 고친 문장
-  const [data, setData] = useState(null) // { owner, week, spelling, expressions }
+  const [view, setView] = useState('main') // 'main' 대시보드 메인 / 'fixes' 최근 고친 문장 / 'wardrobe' 옷장
+  const [data, setData] = useState(null) // { owner, week, spelling, expressions, diary_reward, character }
   const [error, setError] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
+  const [claiming, setClaiming] = useState(false)
+  const [claimMsg, setClaimMsg] = useState('') // 선물 받기 결과 (받았어요 / 받지 못했어요)
 
   useEffect(() => {
     let ignore = false
@@ -37,8 +44,28 @@ export default function DashboardPage({ onBack, onAuthError }) {
     setReloadKey((k) => k + 1)
   }
 
+  // 주간 선물 받기. 응답의 diary_reward · character 로 화면을 바로 바꾼다 (대시보드를 다시 부르지 않는다)
+  async function claim(weekStart) {
+    setClaiming(true)
+    setClaimMsg('')
+    try {
+      const res = await api('/api/rewards/diary/claim', { method: 'POST', body: { week_start: weekStart } })
+      setData((d) => ({ ...d, diary_reward: res.diary_reward, character: res.character }))
+      setClaimMsg(`선물을 받았어요: ${res.clothes.name}. 옷장에서 확인해요.`) // 시안 12E
+    } catch (err) {
+      if (err.status === 401) onAuthError()
+      else setClaimMsg(`선물을 받지 못했어요. ${err.message}`) // 시안 12F
+    } finally {
+      setClaiming(false)
+    }
+  }
+
   if (view === 'fixes') {
     return <RecentFixesPage onBack={() => setView('main')} onAuthError={onAuthError} />
+  }
+  if (view === 'wardrobe') {
+    // 옷장에서 옷을 바꿨을 수 있으니 돌아올 때 대시보드를 다시 불러온다
+    return <WardrobePage onBack={() => { setView('main'); setReloadKey((k) => k + 1) }} onAuthError={onAuthError} />
   }
 
   // 조회 실패는 '기록 없음'과 구분해서 보여 준다 (FR-033)
@@ -53,12 +80,63 @@ export default function DashboardPage({ onBack, onAuthError }) {
   }
   if (!data) return <p>불러오는 중...</p>
 
-  const { week, spelling, expressions } = data
+  const { week, spelling, expressions, diary_reward: reward, character } = data
 
   return (
     <div>
       <button type="button" onClick={onBack}>목장으로</button>
       <h1>{data.owner}의 대시보드</h1>
+
+      {/* 내 캐릭터: 그림이 아직 없어서 입은 옷 이름을 글자로 보여 준다 */}
+      <section className="dashboard-character">
+        <h2>내 캐릭터</h2>
+        {character ? (
+          <ul>
+            {Object.entries(SLOT_LABEL).map(([slot, label]) => (
+              <li key={slot}>{label}: {character[slot] ? character[slot].name : '없음'}</li>
+            ))}
+          </ul>
+        ) : (
+          <p>캐릭터를 불러오지 못했어요.</p>
+        )}
+        <button type="button" onClick={() => setView('wardrobe')}>옷장</button>
+      </section>
+
+      {/* FR-039 일기 주간 선물: 3문장 이상 쓴 일기가 있는 날이 한 주에 5일이면 받는다 */}
+      <section className="dashboard-gift">
+        <h2>이번 주 선물</h2>
+        {!reward ? (
+          <p>선물 정보를 불러오지 못했어요.</p>
+        ) : (
+          <>
+            <p>{reward.progress.count} / {reward.progress.need}일 (3문장 이상 쓴 일기 기준)</p>
+            {reward.this_week.clothes && <p>선물: {reward.this_week.clothes.name} ({reward.this_week.clothes.slot_label})</p>}
+            {reward.this_week.status === 'claimable' && (
+              <button type="button" disabled={claiming} onClick={() => claim(reward.this_week.week_start)}>선물 받기</button>
+            )}
+            {reward.this_week.status === 'claimed' && <p>이번 주 선물을 받았어요.</p>}
+            {reward.this_week.status === 'locked' && (
+              <p>{reward.progress.need - reward.progress.count}일 더 쓰면 선물을 받을 수 있어요.</p>
+            )}
+            {reward.this_week.status === 'none' && <p>준비된 선물을 모두 받았어요.</p>}
+
+            {reward.unclaimed.length > 0 && (
+              <div className="dashboard-gift-unclaimed">
+                <p>지난 주 선물도 받을 수 있어요.</p>
+                <ul>
+                  {reward.unclaimed.map((u) => (
+                    <li key={u.week_start}>
+                      {u.week_start} 주 · {u.clothes.name}{' '}
+                      <button type="button" disabled={claiming} onClick={() => claim(u.week_start)}>받기</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {claimMsg && <p role="status">{claimMsg}</p>}
+          </>
+        )}
+      </section>
 
       {/* FR-024 이번 주 일기 작성 요일 */}
       <section>
@@ -108,10 +186,10 @@ export default function DashboardPage({ onBack, onAuthError }) {
         )}
       </section>
 
-      {/* FR-021 · FR-041: 대시보드 안의 다른 화면 (아직 없음) */}
+      {/* FR-021 · FR-041: 대시보드 안의 다른 화면 */}
       <nav>
         <button type="button" onClick={() => setView('fixes')}>최근 고친 문장</button>
-        <button type="button" disabled>캐릭터 옷장 (준비 중)</button>
+        <button type="button" onClick={() => setView('wardrobe')}>캐릭터 옷장</button>
       </nav>
     </div>
   )
