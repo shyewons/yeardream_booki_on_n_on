@@ -1,0 +1,98 @@
+/* 공통 기준값. 화면별 CSS에서는 글꼴·역할별 색/크기를 재정의하지 않는다. */
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('./assets/fonts/Paperlogy-4Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('./assets/fonts/Paperlogy-5Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('./assets/fonts/Paperlogy-6SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('./assets/fonts/Paperlogy-7Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-family: 'Paperlogy', 'Malgun Gothic', system-ui, sans-serif;
+  --font-title: 32px;
+  --font-body: 24px;
+  --font-button: 22px;
+  --font-description: 20px;
+  --font-support: 18px;
+  --font-input: 32px;
+  --font-correction: 28px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --line-body: 1.5;
+  --line-control: 1.4;
+
+  --color-text: #493820;
+  --color-muted: #766b59;
+  --color-placeholder: #756e63;
+  --color-on-primary: #fff9e5;
+  --color-primary-top: #566d14;
+  --color-primary: #50690c;
+  --color-primary-bottom: #465d08;
+  --color-cream: #fff3d4;
+  --color-cream-light: #fff9e8;
+  --color-cream-bottom: #f3dfad;
+  --color-border: #b99a62;
+  --color-button-border: #ffedbd;
+  --color-input: #fffcf3;
+  --color-focus: #433c21;
+  --color-error: #893e2b;
+  --color-error-surface: #fff2dc;
+  --color-error-border: #bf795a;
+  --color-disabled: #e3ded2;
+  --color-disabled-text: #756f62;
+  --color-outside: #e9e8df;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --touch-min: 48px;
+  --control-height: 56px;
+  --control-height-large: 84px;
+  --radius-input: 16px;
+  --radius-panel: 20px;
+  --radius-pill: 999px;
+  --texture-paper: url('./assets/textures/ui-paper-grain.png');
+  --texture-size: 256px;
+  --texture-opacity: .08;
+  --shadow-button: inset 0 3px 3px #e7f29299, inset 0 -3px 4px #39540655, 0 4px 0 #9b782b66, 0 8px 14px #3a4c3240;
+  --shadow-button-pressed: inset 0 2px 5px #36520b55, 0 1px 0 #9b782b66, 0 3px 5px #3a4c3230;
+}
+
+body {
+  font-family: var(--font-family);
+  color: var(--color-text);
+  font-weight: var(--weight-regular);
+  line-height: var(--line-body);
+}
+
+button, input, textarea, select {
+  font-family: inherit;
+}
