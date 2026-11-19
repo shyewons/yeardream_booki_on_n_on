@@ -18,17 +18,24 @@
 //     s.sid 는 서버의 문장 번호다 (지울 때 엉뚱한 줄을 지우지 않게 같이 보낸다). 다시쓰기 뒤에는 새 줄이라 번호가 바뀐다.
 //
 //   동화 주제: 새 책을 만들 때 고른다 (CreateBookPage → books.fairy_topic_id, 없으면 자유 주제).
-//     글을 열면 서버가 책의 주제(entry.topic: {id, title, prompt})를 알려 주고, 여기서는 보여 주기만 한다.
-//     주제 바꾸기는 entry.topic_change_max 개 문장까지만 (지금은 첫 문장을 쓰기 전에만) → PUT /api/books/{책}/topic.
+//     글을 열면 서버가 책의 주제(entry.topic: {id, title, prompt, opening})를 알려 주고, 여기서는 보여 주기만 한다.
+//     prompt 는 쓰기 안내, opening 은 시작 상황 (첫 장에서만 보여 준다).
+//     주제 바꾸기는 책의 첫 문장을 쓰기 전에만 (장마다가 아니다) → PUT /api/books/{책}/topic.
+//       서버가 책 전체 문장 수로 정한 entry.topic_changeable 을 따르고, 이 장에서 문장을 쓰면 바로 닫는다 (topicChangeable).
 //     문장의 주제 번호(sentences.fairy_topic_id)는 서버가 책에서 넣는다 (여기서는 보내지 않는다).
 //
-//   동화 장: 동화 책 하나 = 이야기 하나, 이야기는 장(1~10장)으로 나뉘고 장마다 글 하나다 (서버 books_repo.py '동화 장').
+//   동화 장: 동화 책 하나 = 이야기 하나, 이야기는 장(1장 ~ rules.story_max_chapters, 지금 100장)으로 나뉘고 장마다 글 하나다 (서버 books_repo.py '동화 장').
 //     date 자리에 'ch3'(3장) · 'new'(새 장) 가 오면 그 장을 연다 (openBody). 없으면 마지막 장.
-//     앞 장의 마지막 문장(prevTail)을 보여 주고, 10장이면 '마지막 장' 안내를 띄운다.
+//     앞 장의 마지막 문장(prevTail)을 보여 주고, 마지막 장(100장)이면 '마지막 장' 안내를 띄운다.
 //   이야기 끝내기: 3문장 이상 쓴 장이 rules.story_finish_min_chapters 개 이상이면 '이야기 끝내기'를 할 수 있다 (openFinish).
-//     나갈 때(askComplete) 3·6·9장째를 채웠으면 한 번씩, 10장을 채웠으면 매번 '끝낼까요?'를 묻는다.
+//     나갈 때(askComplete) 마지막 장(100장)을 채웠으면 매번 '끝낼까요?'를 묻는다. rules.story_finish_ask_at 에 장 수를 넣으면 그때도 한 번씩 묻는다 (지금은 비어 있음).
 //     '다음에 이어 쓸래요'를 고르면 그 구간은 서버에 적어 두고 다시 묻지 않는다 (finish-later).
 //     끝낸 이야기는 다시쓰기만 된다 (새 문장 · 지우기는 막는다. 서버도 막는다).
+//
+//   일기 하루치: 확인을 통과한 문장이 rules.diary_day_sentences(3)개가 되면 서버가 entries.day_done_at 을 적는다 (보상 기준).
+//     화면에는 작은 안내(dayDoneAt)만 띄운다. 저장 버튼을 누르지 않아도 기준은 이미 채운 것이다.
+//     기준을 채웠는데 '이야기 저장하기'를 안 하고 '← 목록으로' · '날짜 바꾸기'를 누르면 저장할지 한 번 묻는다 (askSave).
+//     창을 그냥 닫으면 물을 수 없다 (목록에는 '쓰는 중'으로 남지만 보상 기준은 이미 채워져 있다).
 //
 // 쓰는 법:  const w = createWriter({ book, date, practice, onSaved, onAuthError, onDateChange })
 //          w.subscribe(fn) / w.getSnapshot()  → 화면이 상태를 읽는다 (useSyncExternalStore)
@@ -76,8 +83,10 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         save: { kind: '', text: '', retry: false },   // 저장 표시
         topic: '',                // 동화: 책의 주제 (제목). 빈 글자면 자유 주제
         topicId: null,            // 동화: 책의 주제 번호 (fairy_topics.id). 자유 주제면 null
-        topicPrompt: '',          // 동화: 주제의 이야기 시작 문장 (예: 누구의 발자국일까?)
+        topicPrompt: '',          // 동화: 주제의 쓰기 안내 (예: 토끼가 주인공인 동화를 만들어 봐!)
+        topicOpening: '',         // 동화: 주제의 시작 상황 (예: 토끼가 숲에서 … 누구의 발자국일까?). 첫 장에서만 보여 준다
         topicChangeMax: 0,        // 동화: 문장이 이 수 이하일 때만 주제를 바꿀 수 있다 (null = 언제나. 서버 TOPIC_CHANGE_MAX_SENTENCES)
+        topicBookChangeable: false, // 동화: 서버가 책 전체 문장 수로 정한 '주제를 바꿀 수 있는지' (entry.topic_changeable)
         topicError: '',           // 동화: 주제를 바꾸지 못했을 때 안내
         topicBox: null,           // 동화: 주제 추천 { pick, others }
         expr: null,               // 동화: 표현 추천 { status: 'loading'|'ready'|'error', base, options, value }
@@ -96,10 +105,12 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         story: null,              // 동화: 장 목록 · 끝내기 정보 (서버 _story)
         prevTail: null,           // 동화: 앞 장의 마지막 문장들 { chapter_no, sentences }
         finished: false,          // 동화: 이야기를 끝냈는지 (끝낸 뒤에는 다시쓰기만)
-        finishAsk: null,          // 동화: '이야기를 끝낼까요?'를 묻고 있으면 { upto(3·6·9) | last(10장) | from: 'leave' | 'button' }
+        finishAsk: null,          // 동화: '이야기를 끝낼까요?'를 묻고 있으면 { upto(rules.story_finish_ask_at 중 하나) | last(마지막 장) | from: 'leave' | 'button' }
         finishSaving: false,
         finishError: '',
         nextAsk: false,           // 동화: '다음 장을 쓸까요?'를 묻고 있는지
+        dayDoneAt: null,          // 일기: 하루치(3문장)를 처음 채운 시각 (서버 entries.day_done_at). 있으면 작은 안내를 띄운다
+        saveAsk: false,           // 일기: 나가기 전에 '저장할까요?'를 묻고 있는지
     }
 
     // ── 화면에 보이지 않는 상태 ──
@@ -123,6 +134,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     let draftWaitSince = null   // 아직 보내지 않은 글자를 처음 친 때 (DRAFT_MAX_WAIT_MS 계산용)
     let undoItem = null         // 되돌리기에 쓸 지운 줄 { s, seq } (화면에 있던 그 줄 그대로)
     let undoTimer = null
+    let saveNext = null         // 일기 '저장할까요?'를 물은 뒤 갈 곳 (날짜 바꾸기면 그 날짜로 가는 함수, 목록으로면 null)
 
     function emit() {
         if (disposed) return
@@ -177,6 +189,8 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             if (r.sentence_id) s.sid = r.sentence_id        // 내용이 바뀌면 서버는 새 줄을 만든다 → 번호가 바뀐다
             if (r.changed) { draftSent = ''; st.draft = null }   // 문장이 저장되면 서버가 임시저장을 비운다
             st.entry.status = r.entry.status
+            if (r.entry.day_done_at) st.dayDoneAt = r.entry.day_done_at   // 일기 하루치를 이번에(또는 전에) 채웠다
+            if (r.day_done) track('day_done', { entry: st.entry.id, sentences: written().length })
             lastSaved = String(r.saved_at || '').slice(11, 16)
             return true
         } catch (e) {
@@ -309,15 +323,17 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     }
 
     // ── 동화 주제 ──
-    // 주제는 책에 있다 (새 책 만들기에서 고름). 이 화면에서는 첫 문장을 쓰기 전에만 바꿀 수 있다 (topicChangeable).
+    // 주제는 책에 있다 (새 책 만들기에서 고름). 이 화면에서는 책의 첫 문장을 쓰기 전에만 바꿀 수 있다 (topicChangeable).
+    // 서버 값(책 전체 문장 수로 본 것)을 따르고, 이 장에 방금 쓴 문장도 센다. 2장 이후의 빈 장에서는 서버 값이 false 라 버튼이 안 보인다.
     function topicChangeable() {
-        if (st.kind !== 'fairy' || !st.entry) return false
+        if (st.kind !== 'fairy' || !st.entry || !st.topicBookChangeable) return false
         return st.topicChangeMax === null || written().length <= st.topicChangeMax
     }
     function setTopic(t) {
         st.topic = t ? t.title : ''
         st.topicId = t && Number.isInteger(t.id) ? t.id : null
         st.topicPrompt = t && t.prompt ? t.prompt : ''
+        st.topicOpening = t && t.opening ? t.opening : ''
     }
 
     async function openTopics(more) {
@@ -341,7 +357,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     // 주제 바꾸기 (v: 주제 이름, 빈 글자 = 내가 정할래요). 책에 저장한 뒤 화면에 반영한다.
     // 이미 첫 문장을 썼으면 서버가 400 으로 막는다 (그 사이 다른 기기에서 썼을 때).
     async function chooseTopic(v) {
-        const t = v ? (topicItems[v] || { id: null, title: v, prompt: null }) : null
+        const t = v ? (topicItems[v] || { id: null, title: v, prompt: null, opening: null }) : null
         if (dbMode) {
             let r
             try {
@@ -394,9 +410,11 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             st.loading = false
             st.busy = false
             restoreDraft(r.entry)
+            st.dayDoneAt = r.entry.day_done_at || null
             if (st.kind === 'fairy') {                      // 동화: 책의 주제 (새 책 만들기에서 고름. 없으면 자유 주제) · 장
                 setTopic(r.entry.topic || null)
                 st.topicChangeMax = r.entry.topic_change_max === undefined ? 0 : r.entry.topic_change_max
+                st.topicBookChangeable = !!r.entry.topic_changeable
                 st.chapterNo = r.entry.chapter_no || 1
                 st.displayNo = r.entry.display_no || st.chapterNo
                 st.story = r.story || null
@@ -824,6 +842,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
                     if (!st.sentences.includes(item.s)) st.sentences.splice(at, 0, item.s)
                     if (st.insertAt !== null && st.insertAt >= at) st.insertAt += 1
                     st.entry.status = r.entry.status
+                    if (r.day_done && !st.dayDoneAt) st.dayDoneAt = r.saved_at   // 되살려서 일기 하루치를 채웠다
                     if (r.saved_at) lastSaved = String(r.saved_at).slice(11, 16)
                     updateSaveBar()
                     track('delete_undo', { seq: r.seq })
@@ -877,7 +896,10 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             await api(`/api/entries/${st.entry.id}/complete`, { method: 'POST' })
             track('story_saved', { entry: st.entry.id, sentences: written().length })
             leaving = true
-            onSaved(st.entry.id)
+            const next = saveNext
+            saveNext = null
+            if (next) next(true)                        // 날짜 바꾸기 중에 저장했으면 고른 날짜로 (true = 저장하고 간다)
+            else onSaved(st.entry.id)
         } catch (e) {
             if (authFailed(e)) return
             st.storyError = `이야기를 저장하지 못했어요. 쓴 이야기는 그대로 있어요. (${e.message})`
@@ -902,8 +924,8 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         const go = (c) => ({ target: `ch${c.chapter_no}`, isNew: false, display: c.display_no })
         const prev = i > 0 ? go(shown[i - 1]) : null
         let next = i >= 0 && i < shown.length - 1 ? go(shown[i + 1]) : null
-        if (!next && !st.finished && written().length > 0) {          // 마지막 장: 문장이 있으면 새 장 (10장까지)
-            const max = st.rules ? st.rules.story_max_chapters : 10
+        if (!next && !st.finished && written().length > 0) {          // 마지막 장: 문장이 있으면 새 장 (rules.story_max_chapters 까지)
+            const max = st.rules ? st.rules.story_max_chapters : 100
             const writtenChapters = all.filter((c) => c.sentence_count > 0 && c.chapter_no !== st.chapterNo).length + 1
             if (writtenChapters < max) {
                 const emptyAfter = all.find((c) => c.chapter_no > st.chapterNo && c.sentence_count === 0)   // 뒤에 비어 있는 장이 있으면 그 장에 쓴다
@@ -948,16 +970,21 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         const need = st.rules ? st.rules.story_finish_min_chapters : null
         return dbMode && st.kind === 'fairy' && !!st.entry && !st.finished && !!need && storyQualified() >= need
     }
-    // 나갈 때 물을지: 3·6·9장째를 채웠고 아직 '이어 쓸래요'를 안 고른 구간이면 그 구간, 10장을 채웠으면 매번
+    // 나갈 때 물을지: 마지막 장(100장)을 채웠으면 매번. story_finish_ask_at 구간을 채웠고 아직 '이어 쓸래요'를 안 고른 구간이면 그 구간 (지금은 비어 있음)
     function finishPrompt() {
         if (!canFinish()) return null
         const rules = st.rules || {}
-        const max = rules.story_max_chapters || 10
+        const max = rules.story_max_chapters || 100
         if ((st.displayNo || st.chapterNo) >= max && written().length >= (rules.story_chapter_min_sentences || 3)) return { last: true }
         const asked = st.story ? st.story.finish_asked || 0 : 0
         const q = storyQualified()
         const due = (rules.story_finish_ask_at || []).filter((m) => q >= m && m > asked)
         return due.length ? { upto: Math.max(...due) } : null
+    }
+    // 끝낼지 물을 때 화면이 문구에 쓰는 숫자: 기준을 채운 장 수 · 장의 기준 문장 수 · 마지막 장 번호
+    function finishFacts() {
+        const rules = st.rules || {}
+        return { qualified: storyQualified(), min: rules.story_chapter_min_sentences || 3, max: rules.story_max_chapters || 100 }
     }
     // 나가기 전에 부른다. 물어봤으면 true (화면은 나가지 않고 기다린다)
     function askComplete() {
@@ -965,7 +992,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         const p = finishPrompt()
         if (!p) return false
         track('finish_offer', { ...p, from: 'leave', chapter: st.chapterNo, qualified: storyQualified() })
-        st.finishAsk = { ...p, from: 'leave' }
+        st.finishAsk = { ...p, from: 'leave', ...finishFacts() }
         st.finishError = ''
         emit()
         return true
@@ -974,7 +1001,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     function openFinish() {
         if (!canFinish() || st.busy) return
         track('finish_offer', { from: 'button', chapter: st.chapterNo, qualified: storyQualified() })
-        st.finishAsk = { from: 'button' }
+        st.finishAsk = { from: 'button', ...finishFacts() }
         st.finishError = ''
         emit()
     }
@@ -1012,6 +1039,30 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         }
     }
 
+    // ── 일기: 나가기 전에 '저장할까요?' ──
+    // 하루치 기준(rules.diary_day_sentences)만큼 썼는데 아직 '이야기 저장하기'를 안 했으면(쓰는 중) 묻는다. 물어봤으면 true
+    // next: 물은 뒤 갈 곳 (날짜 바꾸기는 그 날짜를 여는 함수). 없으면 '← 목록으로' (저장하면 글 보기, 안 하면 목록)
+    function askSave(next) {
+        if (!dbMode || st.kind !== 'diary' || !st.entry || st.busy || leaving) return false
+        if (st.entry.status === 'done') return false
+        const need = st.rules ? st.rules.diary_day_sentences : 3
+        if (written().length < need) return false
+        track('save_offer', { entry: st.entry.id, sentences: written().length, next: next ? 'date' : 'list' })
+        saveNext = typeof next === 'function' ? next : null
+        st.saveAsk = true
+        st.storyError = ''
+        emit()
+        return true
+    }
+    // how: stay(계속 쓸래요) · leave(저장하지 않고 나가기) · esc
+    function closeSave(how) {
+        if (!st.saveAsk) return
+        track('save_offer_close', { how })
+        if (how !== 'leave') saveNext = null        // 나가는 경우에는 화면이 pendingNext() 로 갈 곳을 읽는다
+        st.saveAsk = false
+        emit()
+    }
+
     // 나가도 되는지: 쓰던 글자나 저장 안 된 문장이 있으면 화면이 한 번 물어본다
     function unsavedWork() {
         if (leaving) return null
@@ -1038,7 +1089,8 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         openTopics, chooseTopic, closeTopics, topicChangeable, pickExpr, confirmExpr, retryExpr, skipExpr,
         toggleFix(id, open) { const s = st.sentences.find((x) => x.id === id); if (s && !!s.openFix !== open) { s.openFix = open; emit() } },
         finish, backToWrite, restart, saveStory, unsavedWork,
-        askComplete, openFinish, canFinish, closeComplete, completeNow,
+        askComplete, openFinish, canFinish, closeComplete, completeNow, askSave, closeSave,
+        pendingNext() { const n = saveNext; saveNext = null; return n },
         chapterNav, askNext, closeNext,
         noteLeave(info) { track('leave_prompt', info) },
         noteDateChange(from, to) { track('date_change', { from, to }) },

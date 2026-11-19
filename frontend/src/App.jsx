@@ -27,10 +27,14 @@ export default function App() {
     // entryId: 글 리스트에서 고른 글 번호
     const [bookId, setBookId] = useState(null);
     const [listPage, setListPage] = useState(1);
+    // homePage: 목장(책 목록)의 몇 번째 쪽인지 (책을 열었다가 목장으로 돌아와도 보던 쪽이 유지된다. 새 책 · 대시보드로 가면 1쪽)
+    const [homePage, setHomePage] = useState(1);
     // writeDate: 글쓰기 화면에서 쓸 일기 날짜("2026-11-16"). 동화는 장("ch3" = 3장, "new" = 새 장, null = 마지막 장. format.js 의 chapterTarget)
     // justSaved: 방금 '이야기 저장하기'를 누르고 글 조회로 왔는지 ('저장했어요' 안내 표시용)
     const [entryId, setEntryId] = useState(null);
     const [writeDate, setWriteDate] = useState(null);
+    // writeNote: 글쓰기 화면 맨 위에 한 번 띄울 안내 (날짜 바꾸기 전에 저장했으면 '○○ 일기를 저장했어요.'). 다른 길로 들어오면 비운다
+    const [writeNote, setWriteNote] = useState(null);
     const [justSaved, setJustSaved] = useState(false);
     
     // 앱 시작 시 서버 연결 등에 문제가 생기면 표시할 메시지
@@ -49,6 +53,7 @@ export default function App() {
     // 어느 책인지는 이미 기억해 둔 bookId 를 쓴다.
     const handleWrite = useCallback((date) => {
         setWriteDate(date);
+        setWriteNote(null);
         setPage("write");
     }, []);
 
@@ -82,8 +87,9 @@ export default function App() {
                     clearToken();
                     setPage("nickname");
                 } else {
+                    // 서버가 준 문구(끝에 오류 코드, 예: '(오류 코드: DB-2003)')를 함께 보여 준다
                     setStartupError(
-                        "사용자 정보를 확인하지 못했어요. 서버 연결을 확인하고 다시 시도해 주세요."
+                        `사용자 정보를 확인하지 못했어요. ${error.message || "서버 연결을 확인하고 다시 시도해 주세요."}`
                     );
                 }
             }
@@ -128,8 +134,16 @@ export default function App() {
             {/* 3. 목장 화면 */}
             {page === "home" && (
                 <HomeListPage
+                    // 보던 쪽 (목장으로 돌아와도 유지)
+                    page={homePage}
+                    onPageChange={setHomePage}
+
                     // 새 책 만들기 버튼을 누르면 생성 화면으로 전환
-                    onCreateBook={() => setPage("createBook")}
+                    // 목장 쪽은 1쪽으로 (새 책은 최신순이라 1쪽 맨 앞에 보인다). 쪽을 기억하는 건 책을 열었다 돌아올 때뿐이다
+                    onCreateBook={() => {
+                        setHomePage(1);
+                        setPage("createBook");
+                    }}
 
                     // 자식이 선택한 책 객체를 전달한다.
                     // 고른 책 번호를 기억하고 그 책의 글 리스트(1쪽)로 전환한다.
@@ -139,8 +153,11 @@ export default function App() {
                         setPage("postList");
                     }}
 
-                    // 대시보드 버튼을 누르면 대시보드로 전환
-                    onOpenDashboard={() => setPage("dashboard")}
+                    // 대시보드 버튼을 누르면 대시보드로 전환 (돌아오면 목장 1쪽)
+                    onOpenDashboard={() => {
+                        setHomePage(1);
+                        setPage("dashboard");
+                    }}
 
                     // 목장 조회 중 인증 오류가 나면 공통 함수 실행
                     onAuthError={handleAuthError}
@@ -150,9 +167,16 @@ export default function App() {
             {/* 4. 새 책 만들기 화면 */}
             {page === "createBook" && (
                 <CreateBookPage
-                    // 책 생성 성공 후 목장으로 복귀
-                    // 목장 컴포넌트가 다시 표시되면서 목록을 새로 조회한다.
-                    onCreated={() => setPage("home")}
+                    // 책 생성 성공 후 바로 그 책의 글쓰기 화면으로 (요구사항정의서: 책 이름 설정 → 05번 글쓰기)
+                    // writeDate 가 null 이면 일기는 오늘, 동화는 마지막 장(새 책이면 1장)을 연다.
+                    // 글쓰기에서 '← 목록으로'를 누르면 이 책의 글 리스트(1쪽)로 간다.
+                    onCreated={(book) => {
+                        setBookId(book.id);
+                        setListPage(1);
+                        setWriteDate(null);
+                        setWriteNote(null);
+                        setPage("write");
+                    }}
                     
                     // 취소하면 목장으로 복귀
                     onCancel={() => setPage("home")}
@@ -211,7 +235,11 @@ export default function App() {
                     // 고쳐쓰기 · 이어서 쓰기 버튼 (글 리스트의 글쓰기 버튼과 같은 동작)
                     onWrite={handleWrite}
 
-                    onBack={() => setPage("postList")}
+                    // 동화는 이 장이 있는 장 목록 쪽을 알려 준다 (null 이면 보던 쪽 그대로)
+                    onBack={(listAt) => {
+                        if (listAt) setListPage(listAt);
+                        setPage("postList");
+                    }}
                     onHome={() => setPage("home")}
                     onAuthError={handleAuthError}
                 />
@@ -225,8 +253,11 @@ export default function App() {
                     bookId={bookId}
                     date={writeDate}
 
-                    // 목록으로 버튼
-                    onBack={() => setPage("postList")}
+                    // 목록으로 버튼 (동화는 지금 장이 있는 장 목록 쪽을 알려 준다. null 이면 보던 쪽 그대로)
+                    onBack={(listAt) => {
+                        if (listAt) setListPage(listAt);
+                        setPage("postList");
+                    }}
 
                     // '이야기 저장하기'가 끝나면 저장한 글의 조회 화면으로 전환
                     onSaved={(id) => {
@@ -236,7 +267,11 @@ export default function App() {
                     }}
 
                     // '날짜 바꾸기': 고른 날짜의 일기를 연다 (key 가 바뀌어 화면이 새로 만들어진다)
-                    onDateChange={setWriteDate}
+                    onDateChange={(date, note) => {
+                        setWriteDate(date);
+                        setWriteNote(note || null);
+                    }}
+                    note={writeNote}
 
                     onAuthError={handleAuthError}
                 />

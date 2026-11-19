@@ -1,13 +1,16 @@
 // 메인 페이지 화면 : 책 리스트 (요구사항정의서 차트 - 화면ID 시트 - 02번 화면, FR-001 · FR-003)
 // GET /api/books?page=N → 한 쪽 6권. 빈 목장과 불러오기 실패를 구분해서 보여 준다 (FR-033).
+// 보던 쪽(page)은 App.jsx 가 기억한다 (책을 열었다가 목장으로 돌아와도 그 쪽). onPageChange 가 없으면 이 화면이 직접 기억한다.
 
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
 
 const KIND_LABEL = { diary: '일기', fairy: '동화' }
 
-export default function HomeListPage({ onCreateBook, onOpenBook, onOpenDashboard, onAuthError }) {
-  const [page, setPage] = useState(1)
+export default function HomeListPage({ onCreateBook, onOpenBook, onOpenDashboard, onAuthError, page: shelfPage = 1, onPageChange }) {
+  const [ownPage, setOwnPage] = useState(shelfPage)
+  const page = onPageChange ? shelfPage : ownPage
+  const setPage = onPageChange || setOwnPage
   const [data, setData] = useState(null) // { owner, items, page, total, total_pages }
   const [error, setError] = useState('')
   const [reloadKey, setReloadKey] = useState(0) // '다시 불러오기'를 누를 때 바꾼다
@@ -30,6 +33,12 @@ export default function HomeListPage({ onCreateBook, onOpenBook, onOpenDashboard
       ignore = true
     }
   }, [page, reloadKey, onAuthError])
+
+  // 기억해 둔 쪽이 이제 없으면(책이 줄어든 경우) 마지막 쪽으로
+  const lastPage = data ? Math.max(1, data.total_pages) : 0
+  useEffect(() => {
+    if (lastPage && page > lastPage) setPage(lastPage)
+  }, [page, lastPage, setPage])
 
   function retry() {
     setError('')

@@ -16,11 +16,54 @@ class DBNotConfigured(RuntimeError):
     """접속 정보나 라이브러리가 없을 때."""
 
 
-_UNAVAILABLE = "DB에 연결하지 못했습니다. SSH 터널이 켜져 있는지, DATABASE_URL이 맞는지 확인하세요."
+_UNAVAILABLE = "DB에 연결하지 못했습니다. SSH 터널이 켜져 있는지, DATABASE_URL이 맞는지 확인하세요."   # 개발자용 (로그 · 콘솔)
 
 
 class DBUnavailable(RuntimeError):
-    """접속 정보는 있는데 DB에 닿지 못할 때 (터널이 꺼진 경우 등)."""
+    """DB 를 쓰지 못할 때. 화면에 보일 문구가 메시지이고, status 는 돌려줄 HTTP 코드다 (books_api._guard).
+    접속 정보는 있는데 DB에 닿지 못하거나(터널이 꺼진 경우 등), 아래 DBError 처럼 SQL 이 실패한 경우."""
+    status = 503
+    code = None
+
+
+# ── DB 오류 나누기 (2026-11-19) ──
+# 예전에는 SQL 오류가 모두 '연결하지 못했습니다'로 보여서, 칸이 없는 경우(Unknown column)도 터널 문제처럼 보였다.
+# MySQL 오류 번호로 나눠 아이에게는 쉬운 문구와 짧은 오류 코드(예: DB-1054)만 보이고, 원문은 로그(error 파일)와 서버 콘솔에 남긴다.
+_KINDS = {
+    "connect":  (503, "서버에 연결하지 못했어요. 잠시 뒤 다시 해 주세요."),           # 터널 · 서버 꺼짐, 접속 정보 틀림
+    "busy":     (503, "다른 저장과 겹쳤어요. 잠시 뒤 다시 해 주세요."),                # 잠금 대기 · 교착
+    "mismatch": (500, "지금은 이 기능을 쓸 수 없어요. 어른께 알려 주세요."),           # DB 와 코드가 안 맞음 (칸 · 표 없음, SQL 문법)
+    "other":    (500, "문제가 생겼어요. 다시 해 주세요."),                             # 그 밖
+}
+_CODES = {
+    "connect": {1044, 1045, 1049, 2002, 2003, 2005, 2006, 2013, 2055},   # 권한 · 비밀번호 · DB 없음 · 서버에 못 닿음 · 연결 끊김
+    "busy": {1205, 1213},                                                # 잠금 대기 시간 초과 · 교착
+    "mismatch": {1054, 1064, 1136, 1146, 1364},                          # 칸 없음 · SQL 문법 · 칸 수 · 표 없음 · 기본값 없는 칸
+}
+
+
+class DBError(DBUnavailable):
+    """SQL 이 실패했을 때. kind: connect / busy / mismatch / other, code: 'DB-1054' 같은 짧은 코드, raw: DB 가 준 원문 (로그용)."""
+
+    def __init__(self, kind, number, raw):
+        self.kind, self.raw = kind, raw
+        self.status, text = _KINDS[kind]
+        self.code = f"DB-{number}" if number else ("DB-연결" if kind == "connect" else "DB-기타")
+        super().__init__(f"{text} (오류 코드: {self.code})")
+
+
+def _db_error(e):
+    """sqlalchemy 오류를 DBError 로 바꾼다. 연결 문제면 개발자용 안내(_UNAVAILABLE)를 콘솔에도 찍는다."""
+    from sqlalchemy.exc import InterfaceError
+    orig = getattr(e, "orig", None)
+    args = getattr(orig, "args", ()) or ()
+    number = args[0] if args and isinstance(args[0], int) else None
+    kind = next((k for k, codes in _CODES.items() if number in codes), None)
+    if kind is None:
+        kind = "connect" if isinstance(e, InterfaceError) or number is None and "connect" in str(e).lower() else "other"
+    raw = str(orig if orig is not None else e)[:500]
+    print(f"[db] {kind} {number or ''} {raw}" + (f"\n     {_UNAVAILABLE}" if kind == "connect" else ""))
+    return DBError(kind, number, raw)
 
 
 def _load_dotenv():
@@ -64,12 +107,12 @@ def query(sql, params=None):
     예) query("SELECT * FROM books WHERE id = :id", {"id": 3})"""
     engine = get_engine()
     from sqlalchemy import text
-    from sqlalchemy.exc import InterfaceError, OperationalError
+    from sqlalchemy.exc import DBAPIError
     try:
         with engine.connect() as conn:
             return [dict(r._mapping) for r in conn.execute(text(sql), params or {})]
-    except (OperationalError, InterfaceError) as e:
-        raise DBUnavailable(_UNAVAILABLE) from e
+    except DBAPIError as e:                          # 연결 · SQL 오류 모두 (나누기는 _db_error)
+        raise _db_error(e) from e
 
 
 class Conflict(RuntimeError):
@@ -105,9 +148,9 @@ def run_in_transaction(fn):
     예) run_in_transaction(lambda tx: tx.insert("INSERT INTO ...", {...}))"""
     engine = get_engine()
     from sqlalchemy import text
-    from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
+    from sqlalchemy.exc import DBAPIError, IntegrityError
     try:
         with engine.begin() as conn:
             return fn(_Tx(conn, text, IntegrityError))
-    except (OperationalError, InterfaceError) as e:
-        raise DBUnavailable(_UNAVAILABLE) from e
+    except DBAPIError as e:                          # 연결 · SQL 오류 모두 (UNIQUE 중복은 위 _Tx 가 Conflict 로 바꾼다)
+        raise _db_error(e) from e

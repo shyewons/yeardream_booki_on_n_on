@@ -1,11 +1,11 @@
 // 새 책 만들기 화면 (요구사항정의서 차트 - 화면ID 시트 - 03번 화면)
 //   1단계: 일기 / 동화 고르기 (FR-002)
-//   (동화만) 주제 고르기: 주제 3개(이름 + 이야기 시작 문장) · 다른 주제 보기 · 내가 정할래요 (디자인 시안 03D)
+//   (동화만) 주제 고르기: 주제 3개(이름 + 쓰기 안내. 시작 상황 opening 은 글쓰기 첫 장에서 보여 준다) · 다른 주제 보기 · 내가 정할래요 (디자인 시안 03D)
 //   2단계: 책 이름 정하기 (FR-030, 기능+화면 시트의 '화면 생성 필요' 화면을 같은 파일에 둠)
 //          동화는 고른 주제 이름을 책 이름 칸에 미리 적어 둔다 (아이가 고쳐 쓸 수 있다)
-// GET /api/topics?others=2 → 주제 3개 { items: [{id, title, prompt}] }
+// GET /api/topics?others=2 → 주제 3개 { items: [{id, title, prompt, opening}] }
 // POST /api/books {kind, title, fairy_topic_id} → 만들어진 책을 onCreated 로 넘긴다.
-//   fairy_topic_id 가 null 이면 자유 주제 (일기는 늘 null)
+//   fairy_topic_id 가 null 이면 자유 주제 (서버가 '자유 주제' 줄 번호로 적는다. 일기는 늘 null)
 // 뒤로: 책 이름 → (동화) 주제 고르기 → 종류 고르기. 모양(CSS)은 아직 입히지 않았다.
 
 import { useState } from 'react'
