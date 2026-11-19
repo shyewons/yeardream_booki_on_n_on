@@ -1,0 +1,67 @@
+/* 01A: 1024×768 태블릿. 공통 UI는 common.css, 이 파일은 이름표·배치·장식만 관리한다. */
+body:has(.nickname-screen) {
+  margin: 0;
+  background: var(--color-outside);
+}
+
+.nickname-screen {
+  box-sizing: border-box;
+  width: 1024px;
+  min-height: 768px;
+  margin-inline: auto;
+  padding: 168px 0 64px;
+  overflow: clip;
+  background: #c9eeb4 url('./assets/backgrounds/nickname-meadow.png') center / cover no-repeat;
+}
+
+.nickname-screen__sign {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  width: 752px;
+  margin-inline: auto;
+  padding: var(--space-8) 56px 44px;
+  border: 2px solid var(--color-button-border);
+  border-radius: 60px;
+  background: linear-gradient(160deg, var(--color-cream-light), var(--color-cream) 60%, #f7e4b4);
+  box-shadow: inset 0 4px 0 #ffffffc9, inset 0 -4px 0 #e4be7759, 0 5px 0 #b8955640, 0 12px 18px #52603a38;
+}
+
+.nickname-screen__sign::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--texture-paper) repeat;
+  background-size: var(--texture-size);
+  opacity: var(--texture-opacity);
+  pointer-events: none;
+}
+
+.nickname-screen__content { position: relative; }
+.nickname-screen__heading { margin: 0 0 var(--space-6); text-align: center; }
+.nickname-screen__name { display: flex; align-items: center; gap: var(--space-6); }
+.nickname-screen__input { flex: 1; min-width: 0; height: 80px; }
+.nickname-screen__suffix { flex: 0 0 auto; white-space: nowrap; }
+
+/* 두 줄 정도의 오류 안내 공간을 확보한다. 더 긴 안내는 글자를 줄이지 않고 판을 늘린다. */
+.nickname-screen__feedback {
+  min-height: 64px;
+  padding-block: var(--space-2);
+  box-sizing: border-box;
+}
+.nickname-screen__feedback .ui-field-message { margin-top: 0; }
+.nickname-screen__submit { display: flex; width: 440px; margin-inline: auto; }
+
+/* 매듭·구멍·테두리가 포함된 한 이미지. 윗줄만 화면 경계에서 잘리며 구멍은 이름표 안에 남는다. */
+.nickname-screen__rope {
+  position: absolute;
+  z-index: 1;
+  top: -190px;
+  width: 110px;
+  height: auto;
+  pointer-events: none;
+  user-select: none;
+}
+.nickname-screen__rope--left { left: 40px; }
+.nickname-screen__rope--right { right: 40px; }

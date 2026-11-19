@@ -1,0 +1,155 @@
+/*
+ * 공통 UI 사용법 — main.jsx에서 한 번만 불러온다.
+ * 주요: <button className="ui-button ui-button--primary">확인하기</button>
+ * 보조: <button className="ui-button ui-button--secondary ui-button--small">목록으로</button>
+ * 큰 버튼: ui-button--large를 추가한다. 폭·위치는 페이지 CSS에서 지정한다.
+ * 아이콘: ui-button ui-button--icon + aria-label. 이미지에는 alt=""를 쓴다.
+ * 입력: ui-input (박스형), ui-input ui-input--line (밑줄형).
+ * 입력 오류: aria-invalid="true" + aria-describedby로 ui-field-message를 연결한다.
+ * 비활성/처리 중: 실제 disabled 속성, 처리 중에는 aria-busy="true"도 지정한다.
+ * 안내: ui-notice / ui-notice ui-notice--error. 오류 알림은 role="alert"를 지정한다.
+ */
+
+.ui-button, .ui-input, .ui-notice { box-sizing: border-box; }
+
+.ui-button {
+  --button-surface: linear-gradient(var(--color-cream-light), var(--color-cream-bottom));
+  --button-text: var(--color-text);
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: var(--touch-min);
+  min-height: var(--control-height);
+  max-width: 100%;
+  padding: var(--space-3) var(--space-6);
+  border: 3px solid var(--color-button-border);
+  border-radius: var(--radius-pill);
+  background: var(--button-surface);
+  color: var(--button-text);
+  box-shadow: var(--shadow-button);
+  font-family: var(--font-family);
+  font-size: var(--font-button);
+  font-weight: var(--weight-semibold);
+  line-height: var(--line-control);
+  text-align: center;
+  text-decoration: none;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ui-button::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--texture-paper) repeat;
+  background-size: var(--texture-size);
+  opacity: var(--texture-opacity);
+  pointer-events: none;
+}
+
+.ui-button--primary {
+  --button-surface: linear-gradient(180deg, var(--color-primary-top), var(--color-primary) 45%, var(--color-primary-bottom));
+  --button-text: var(--color-on-primary);
+}
+
+.ui-button--secondary {
+  box-shadow: inset 0 2px 3px #ffffffb3, inset 0 -2px 3px #ba965433, 0 3px 0 #9b782b33, 0 5px 10px #3a4c3226;
+}
+
+.ui-button--large {
+  min-height: var(--control-height-large);
+  padding: var(--space-4) 28px;
+  border-width: 4px;
+}
+
+.ui-button--small {
+  min-height: var(--touch-min);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-support);
+}
+
+.ui-button--icon {
+  width: var(--touch-min);
+  height: var(--touch-min);
+  min-height: var(--touch-min);
+  padding: var(--space-3);
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-input);
+  box-shadow: inset 0 1px 2px #ffffffb3, 0 2px 3px #3a4c3226;
+}
+.ui-button--icon :is(svg, img) { width: 20px; height: 20px; object-fit: contain; flex: 0 0 auto; }
+
+.ui-button:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 4px;
+}
+.ui-button:active:not(:disabled) { box-shadow: var(--shadow-button-pressed); }
+.ui-button:disabled {
+  background: var(--color-disabled);
+  color: var(--color-disabled-text);
+  border-color: #d0c7b3;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.ui-button:disabled::before { opacity: 0; }
+.ui-button[aria-busy='true'] { cursor: progress; }
+.ui-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+
+.ui-input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: var(--space-3) var(--space-4);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-input);
+  background: var(--color-input);
+  color: var(--color-text);
+  box-shadow: inset 0 2px 4px #8c74431a;
+  font-family: var(--font-family);
+  font-size: var(--font-body);
+  font-weight: var(--weight-regular);
+  line-height: var(--line-body);
+}
+.ui-input::placeholder { color: var(--color-placeholder); opacity: 1; }
+.ui-input--line {
+  padding-inline: var(--space-2);
+  border: 0;
+  border-bottom: 2px solid var(--color-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--font-input);
+}
+.ui-input:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 3px; }
+.ui-input[aria-invalid='true'] { border-color: var(--color-error); }
+.ui-input:disabled { background: var(--color-disabled); color: var(--color-disabled-text); cursor: not-allowed; }
+.ui-input[readonly] { background: var(--color-cream-light); }
+.ui-field-label { display: block; margin-bottom: var(--space-2); font-size: var(--font-description); font-weight: var(--weight-semibold); }
+.ui-field-message { margin: var(--space-2) 0 0; color: var(--color-error); font-size: var(--font-description); line-height: var(--line-body); }
+
+.ui-notice {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-cream-light);
+  color: var(--color-text);
+  font-size: var(--font-description);
+  line-height: var(--line-body);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.ui-notice--error { color: var(--color-error); background: var(--color-error-surface); border-color: var(--color-error-border); }
+
+.ui-title { font-size: var(--font-title); font-weight: var(--weight-bold); line-height: var(--line-control); }
+.ui-body { font-size: var(--font-body); font-weight: var(--weight-regular); line-height: var(--line-body); }
+.ui-description { font-size: var(--font-description); line-height: var(--line-body); }
+.ui-muted { color: var(--color-muted); }
