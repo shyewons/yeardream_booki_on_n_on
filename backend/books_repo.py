@@ -201,7 +201,11 @@ def list_entries(user_id, book_id, page=1, size=None):
             WHERE e.book_id = :bid AND e.status = 'writing' AND """ + _VISIBLE + """
             ORDER BY e.diary_date DESC, e.id DESC LIMIT 1""", {"bid": book_id})
     writing = {"id": w[0]["id"], "date": w[0]["diary_date"]} if w else None
-    return {"book": book, "items": items, "writing": writing, **_meta(total, page, size)}
+    # 오늘 일기(하루 = 글 하나): 목록 화면의 '새 일기 쓰기 / 오늘 일기 이어서 쓰기 / 오늘 일기 고쳐 쓰기' 문구용. 없으면 None
+    t = db.query(f"""SELECT e.id, e.status FROM entries e WHERE e.book_id = :bid AND e.diary_date = :d AND {_VISIBLE}""",
+                 {"bid": book_id, "d": today_kst().isoformat()})
+    today = {"id": t[0]["id"], "status": t[0]["status"]} if t else None
+    return {"book": book, "items": items, "writing": writing, "today": today, **_meta(total, page, size)}
 
 
 # ── 글 하나 (문장 + 교정 항목까지) ───────────────────────────────────────────

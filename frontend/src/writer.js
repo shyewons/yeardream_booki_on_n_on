@@ -898,7 +898,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             leaving = true
             const next = saveNext
             saveNext = null
-            if (next) next()                            // 날짜 바꾸기 중에 저장했으면 고른 날짜로
+            if (next) next(true)                        // 날짜 바꾸기 중에 저장했으면 고른 날짜로 (true = 저장하고 간다)
             else onSaved(st.entry.id)
         } catch (e) {
             if (authFailed(e)) return

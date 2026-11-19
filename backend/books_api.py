@@ -42,15 +42,16 @@ router = APIRouter(prefix="/api")
 
 
 def _guard(fn, *args):
-    """DB 쪽 문제(설정 없음, 연결 실패, 더미 사용자 없음)를 503 으로 바꿔 준다. 문제는 로그(error / action)에도 남긴다."""
+    """DB 쪽 문제(설정 없음, 연결 실패, SQL 실패, 더미 사용자 없음)를 HTTP 오류로 바꿔 준다. 문제는 로그(error / action)에도 남긴다.
+    SQL 실패(db.DBError)는 연결 · 잠깐 막힘이면 503, DB 와 코드가 안 맞거나 그 밖이면 500. 화면 문구에는 짧은 오류 코드(DB-1054 등)만 붙고 원문은 로그에 남는다."""
     try:
         return fn(*args)
     except auth.InvalidToken as e:                       # 토큰이 틀림 → 화면이 01번 별명 화면으로 보낸다
         devlog.write("action", "rejected", {"call": getattr(fn, "__name__", ""), "reason": "invalid_token"})
         raise HTTPException(status_code=401, detail=str(e))
     except (db.DBNotConfigured, db.DBUnavailable, repo.NoUser) as e:
-        devlog.error("db", e, {"call": getattr(fn, "__name__", "")})
-        raise HTTPException(status_code=503, detail=str(e))
+        devlog.error("db", e, {"call": getattr(fn, "__name__", ""), "code": getattr(e, "code", None), "raw": getattr(e, "raw", None)})
+        raise HTTPException(status_code=getattr(e, "status", 503), detail=str(e))
     except repo.Stale as e:                              # 다른 탭 · 기기에서 글이 바뀜 → 화면이 다시 열라고 안내한다
         devlog.write("action", "rejected", {"call": getattr(fn, "__name__", ""), "reason": "stale"})
         raise HTTPException(status_code=409, detail=str(e))

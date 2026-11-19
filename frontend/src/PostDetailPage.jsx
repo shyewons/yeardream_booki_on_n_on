@@ -9,7 +9,7 @@
 // 화면을 바꾸는 일은 App.jsx 가 한다. 이 화면은 아래 함수(props)를 부르기만 한다.
 //   onOpenEntry(글 번호)   이전/다음 이야기로
 //   onWrite(날짜 · 장)   글쓰기 화면으로 (고쳐쓰기 · 이어서 쓰기. 동화는 chapterTarget(장 번호))
-//   onBack()   글 목록으로 (동화는 장 목록)        onHome()   목장으로
+//   onBack(쪽)   글 목록으로 (동화는 이 장이 있는 장 목록 쪽, 일기는 null = 보던 쪽)        onHome()   목장으로
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
 
 import { useState } from 'react'
@@ -27,10 +27,16 @@ export default function PostDetailPage({ entryId, saved = false, onOpenEntry, on
     const [view, setView] = useState({ entryId, page: 1 })
 
     const isFairy = !!data && data.book.kind === 'fairy'
+    // 동화는 이 장이 있는 장 목록 쪽으로 돌아간다 (한 쪽 장 수는 서버 rules.story_chapters_per_page)
+    function backToList() {
+        if (!isFairy) return onBack(null)
+        const per = data.rules ? data.rules.story_chapters_per_page : 10
+        onBack(Math.ceil((data.entry.display_no || data.entry.chapter_no || 1) / per))
+    }
     const head = (
         <p>
             {/* 글을 불러오기 전에는 '목장으로'만 보여 준다 */}
-            {data && <><button type="button" onClick={onBack}>← 목록으로</button>{' '}</>}
+            {data && <><button type="button" onClick={backToList}>← 목록으로</button>{' '}</>}
             <button type="button" onClick={onHome}>{data ? '목장으로' : '← 목장으로'}</button>
         </p>
     )

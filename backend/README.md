@@ -48,7 +48,7 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `GET /api/books?page=1` | 목장(책 목록, 최근에 만든 책부터, 한 쪽 6권). 응답에 별명 `owner` |
 | `POST /api/books` | 책 만들기 `{"kind": "diary"\|"fairy", "title": "몽실", "fairy_topic_id": 3}`. 동화 주제가 `null` 이면 자유 주제 (DB 에는 `자유 주제` 줄 번호) |
 | `PUT /api/books/{책}/topic` | 동화 주제 바꾸기 `{"fairy_topic_id": 3\|null}`. 첫 문장을 쓰기 전에만 (`books_repo.py` 의 `TOPIC_CHANGE_MAX_SENTENCES`) |
-| `GET /api/books/{책}/entries?page=1` | 글 목록(최신 날짜부터, 한 쪽 10개). `writing`: 쓰던 글. 동화는 장 목록(1장부터 한 쪽 10장)과 `story`(모든 장의 문장 수 · 보상 진행 · 끝내기 정보) |
+| `GET /api/books/{책}/entries?page=1` | 글 목록(최신 날짜부터, 한 쪽 10개). `writing`: 쓰던 글, `today`: 오늘 일기 `{id, status}`(없으면 null). 동화는 장 목록(1장부터 한 쪽 10장)과 `story`(모든 장의 문장 수 · 보상 진행 · 끝내기 정보) |
 | `GET /api/entries/{글}` | 글 하나(문장·고친 곳·이전/다음 글 번호) |
 | `GET /api/books/{책}/diary/{날짜}` | 그 날짜의 일기 |
 | `POST /api/books/{책}/entries` | 글 열기(없으면 만들기) `{"date": "2026-11-16"}`. 동화는 장: `{"chapter": 3}` / `{"new_chapter": true}` / `{}` 마지막 장 |

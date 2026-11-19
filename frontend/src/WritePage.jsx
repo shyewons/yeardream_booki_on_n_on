@@ -6,9 +6,10 @@
 //   bookId 책의 글을 열어 문장마다 저장한다 (일기는 date 의 글, 동화는 date 자리의 'ch3' · 'new' 로 장을 고른다).
 //
 // 화면을 바꾸는 일은 App.jsx 가 한다. 이 화면은 아래 함수(props)를 부르기만 한다.
-//   onBack()   글 목록으로 (동화는 장 목록으로)
+//   onBack(쪽)   글 목록으로 (동화는 장 목록으로. 쪽 = 지금 장이 있는 장 목록 쪽, 일기는 null = 보던 쪽)
+//   note   앞 화면에서 넘겨준 안내 한 줄 (날짜 바꾸기 전에 저장했으면 '○○ 일기를 저장했어요.'). 없으면 null
 //   onSaved(글 번호)   '이야기 저장하기' · '이야기 끝내기'가 끝남 → 글 조회 화면으로
-//   onDateChange(날짜 · 장)   '날짜 바꾸기'로 다른 날짜의 일기를, 동화 '다음 장'으로 다음 장('ch4')을 연다
+//   onDateChange(날짜 · 장, 안내)   '날짜 바꾸기'로 다른 날짜의 일기를, 동화 '다음 장'으로 다음 장('ch4')을 연다 (안내는 다음 화면의 note)
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
 // 동화는 마지막 장(100장)을 채운 뒤 '← 목록으로'를 누르면, 나가기 전에 화면 안에서 끝낼지 묻는다 (FinishOffer).
 // 일기는 하루치(3문장)를 채웠는데 저장하지 않고 '← 목록으로' · '날짜 바꾸기'를 하면 저장할지 묻는다 (SaveOffer). 하루치를 채우면 작은 안내(#day-done)를 띄운다.
@@ -154,7 +155,8 @@ function DeleteConfirm({ writer }) {
 }
 
 // 동화: 다음 장을 새로 쓸지 묻기. 처음 선택은 '이 장 계속 쓰기', Esc 를 눌러도 같다.
-function NextChapterAsk({ chapterNo, writer, onGo }) {
+// short: 이 장이 아직 선물 기준(rules.story_chapter_min_sentences)에 모자라면 { have, need }, 채웠으면 null
+function NextChapterAsk({ chapterNo, writer, onGo, short }) {
     const stayRef = useRef(null)
     useEffect(() => {
         if (stayRef.current) stayRef.current.focus()
@@ -165,6 +167,11 @@ function NextChapterAsk({ chapterNo, writer, onGo }) {
     return (
         <div className="confirm" id="next-ask" role="alertdialog" aria-label="다음 장 쓰기">
             <p className="ask">{chapterNo}장은 여기까지 쓸까요? {chapterNo + 1}장을 새로 써요.</p>
+            {short && (
+                <p className="note" id="next-gift-note">
+                    🎁 {chapterNo}장은 지금 {short.have}문장이에요. {short.need}문장을 채워야 선물에 세어져요. (나중에 돌아와 더 써도 돼요)
+                </p>
+            )}
             <div className="row">
                 <button type="button" className="primary" id="next-yes" onClick={() => { writer.closeNext(); onGo() }}>{chapterNo + 1}장 쓰기</button>{' '}
                 <button type="button" className="btn-sm" id="next-stay" ref={stayRef} onClick={writer.closeNext}>{chapterNo}장 계속 쓰기</button>
@@ -301,7 +308,7 @@ function ExprBox({ expr, writer }) {
     )
 }
 
-export default function WritePage({ bookId, date, onBack, onSaved, onDateChange, onAuthError }) {
+export default function WritePage({ bookId, date, note = null, onBack, onSaved, onDateChange, onAuthError }) {
     // 이 화면의 두뇌는 한 번만 만든다. (책이나 날짜가 바뀌면 App.jsx 가 key 를 바꿔 화면을 새로 만든다)
     const [writer] = useState(() =>
         createWriter({ book: bookId, date, practice: false, onSaved, onAuthError }),
@@ -356,6 +363,13 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
         return () => window.removeEventListener('beforeunload', onBeforeUnload)
     }, [writer])
 
+    // 목록으로: 동화는 지금 장이 있는 쪽을 함께 알려 준다 (장 목록이 그 쪽을 연다). 일기는 보던 쪽 그대로
+    function back() {
+        const per = state.rules ? state.rules.story_chapters_per_page : 10
+        const no = state.displayNo || state.chapterNo
+        onBack(state.kind === 'fairy' && no ? Math.ceil(no / per) : null)
+    }
+
     // 화면 안의 버튼으로 나갈 때도 같은 것을 물어본다. 나가도 되면 move() 를 부른다
     function leave(move) {
         const info = writer.unsavedWork()
@@ -385,6 +399,11 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
         return days > state.rules.diary_late_days ? days : null
     })()
 
+    // 동화: 지금 장이 아직 선물 기준 문장 수에 모자라면 { have, need } ('다음 장' 묻기에 안내)
+    const giftNeed = state.rules ? state.rules.story_chapter_min_sentences : 3
+    const giftHave = state.sentences.filter((s) => s.original).length
+    const giftShort = state.kind === 'fairy' && giftHave < giftNeed ? { have: giftHave, need: giftNeed } : null
+
     const editing = state.sentences.find((s) => s.id === state.editingId)
     const insertNext = state.insertAt !== null ? state.sentences[state.insertAt] : null
     const written = state.sentences.filter((s) => s.original)
@@ -409,14 +428,15 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
         const value = e.target.value
         if (!value || value === entryDate) return
         writer.noteDateChange(entryDate, value)
-        const go = () => onDateChange(value)
+        // saved: 묻는 창에서 '저장하기'를 눌러 저장하고 가는지 → 다음 화면에 '○○ 일기를 저장했어요'를 띄운다
+        const go = (saved) => onDateChange(value, saved === true ? `${fmtDate(entryDate)} 일기를 저장했어요.` : null)
         if (!writer.askSave(go)) leave(go)            // 저장 안 한 하루치 일기면 먼저 묻는다 (저장하면 고른 날짜로 간다)
     }
 
     return (
         <div className="write-page">
             <header>
-                <button type="button" className="to-list btn-sm" id="to-list" onClick={() => { if (!writer.askComplete() && !writer.askSave()) leave(onBack) }}>
+                <button type="button" className="to-list btn-sm" id="to-list" onClick={() => { if (!writer.askComplete() && !writer.askSave()) leave(back) }}>
                     ← 목록으로
                 </button>
                 <h1 id="title">{title}</h1>
@@ -437,23 +457,27 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
             </header>
 
             {state.nextAsk && (
-                <NextChapterAsk chapterNo={state.displayNo || state.chapterNo} writer={writer}
+                <NextChapterAsk chapterNo={state.displayNo || state.chapterNo} writer={writer} short={giftShort}
                                 onGo={() => { const next = writer.chapterNav().next; if (next) leave(() => onDateChange(next.target)) }} />
             )}
 
             {state.finishAsk && (
-                <FinishOffer ask={state.finishAsk} writer={writer} onLeave={() => leave(onBack)}
+                <FinishOffer ask={state.finishAsk} writer={writer} onLeave={() => leave(back)}
                              saving={state.finishSaving} error={state.finishError} />
             )}
 
+            {/* 앞 화면에서 저장하고 넘어왔다는 안내 (예: 날짜 바꾸기 전에 '저장하기') */}
+            {note && <p id="saved-note" className="saved" role="status">✔ {note}</p>}
+
+            {/* '저장하지 않고 나갈래요'는 이미 한 번 물은 것이라 브라우저 확인창은 띄우지 않는다. 쓰던 글자는 나가기 전에 임시저장한다 */}
             {state.saveAsk && (
-                <SaveOffer writer={writer} onLeave={() => leave(writer.pendingNext() || onBack)} saving={state.storySaving} error={state.storyError} />
+                <SaveOffer writer={writer} onLeave={() => { writer.flushDraft(); (writer.pendingNext() || back)() }} saving={state.storySaving} error={state.storyError} />
             )}
 
             {/* 일기: 하루치(3문장)를 채웠다는 작은 안내 (보상 기준. 저장 버튼을 누르지 않아도 이미 채운 것이다) */}
             {state.kind === 'diary' && state.dbMode && state.dayDoneAt && (
                 <p id="day-done" className="note" role="status">
-                    ✓ 하루치 일기({state.rules ? state.rules.diary_day_sentences : 3}문장)를 채웠어요
+                    ✓ 이 날 일기는 하루치({state.rules ? state.rules.diary_day_sentences : 3}문장)를 채웠어요. 문장을 고치거나 지워도 그대로 인정돼요.
                 </p>
             )}
 

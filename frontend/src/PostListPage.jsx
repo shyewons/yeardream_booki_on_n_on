@@ -1,6 +1,7 @@
 // 글 리스트 화면 (요구사항정의서 차트 - 화면ID 시트 - 04번 화면)
 // GET /api/books/{책}/entries?page=N → 한 쪽 10개 (일기: 최신 날짜부터).
-// 일기: '새 일기 쓰기'(오늘) + 쓰던 일기가 있으면 '이어서 쓰기', 날짜로 찾기.
+// 일기: 오늘 일기 버튼(없으면 '새 일기 쓰기', 쓰는 중이면 '오늘 일기 이어서 쓰기', 저장했으면 '오늘 일기 고쳐 쓰기')
+//       + 다른 날짜에 쓰던 일기가 있으면 '이어서 쓰기', 날짜로 찾기.
 // 동화: 책 하나 = 이야기 하나, 이야기는 장(1장 ~ 100장)으로 나뉜다 (디자인 04C). 장 목록(장 번호 + 첫 문장)을 1장부터 한 쪽 10장씩 보여 준다.
 //       '새 장 쓰기' · '이어서 쓰기'(마지막 장) · 보상 진행(3문장 이상 쓴 장 수와 3·6·10 구간) · '이야기 끝내기'.
 //       마지막 장을 다른 날 이어 쓰려 하면 '이어 쓸지 · 새 장을 쓸지' 묻는다.
@@ -129,6 +130,10 @@ function StoryChapters({ data, back, onOpenEntry, onWrite, onAuthError, reload, 
                             <li key={c.id}>
                                 <button type="button" onClick={() => onOpenEntry(c.id)}>
                                     <span className="chapter-no">{c.display_no}장</span>{' '}
+                                    {/* 선물에 세는 장(기준 문장 수 이상)은 ✓, 아니면 지금 문장 수 (디자인 때 모양만 바꾸거나 뺄 수 있게 따로 둔다) */}
+                                    <span className={c.qualified ? 'chapter-mark ok' : 'chapter-mark'}>
+                                        {c.qualified ? '✓' : `(${c.sentence_count}문장)`}
+                                    </span>{' '}
                                     <span className="preview">{c.first || '(쓰던 문장만 있어요)'}</span>
                                 </button>
                             </li>
@@ -214,8 +219,9 @@ export default function PostListPage({ bookId, page, onPageChange, onOpenEntry, 
             {data.total > 0 && <p>읽고 싶은 날짜를 눌러 주세요.</p>}
 
             <p className="start">
-                <button type="button" onClick={() => onWrite(today)}>
-                    {writingDate === today ? '오늘 일기 이어서 쓰기' : '새 일기 쓰기'}
+                {/* 하루에 일기는 하나라서, 오늘 일기가 이미 있으면 그 글을 연다 (서버 list_entries 의 today) */}
+                <button type="button" id="today-write" onClick={() => onWrite(today)}>
+                    {!data.today ? '새 일기 쓰기' : data.today.status === 'done' ? '오늘 일기 고쳐 쓰기' : '오늘 일기 이어서 쓰기'}
                 </button>
                 {writing && writingDate !== today && (
                     <>
