@@ -38,7 +38,7 @@ export class ApiError extends Error {
 }
 
 // keepalive: true 면 화면이 닫히는 중에도 요청이 끝까지 간다 (글쓰기 화면이 가려질 때 쓰던 문장을 보낼 때 쓴다)
-export async function api(path, { method = 'GET', body, keepalive = false } = {}) {
+export async function api(path, { method = 'GET', body, keepalive = false, signal } = {}) {
   const headers = {}
   const token = getToken()
   if (token) headers['X-User-Token'] = token
@@ -51,6 +51,7 @@ export async function api(path, { method = 'GET', body, keepalive = false } = {}
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       keepalive,
+      signal,
     })
   } catch {
     throw new ApiError(0, '서버에 연결하지 못했어요. 잠시 후 다시 해 주세요.')

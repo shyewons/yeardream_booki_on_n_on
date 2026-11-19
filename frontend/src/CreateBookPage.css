@@ -1,0 +1,55 @@
+/* 03: 종류 선택과 책 이름 입력. 주제 선택은 기존 글쓰기 흐름을 유지한다. */
+body:has(.create-book) { margin: 0; background: var(--color-outside); }
+.create-book {
+  position: relative;
+  box-sizing: border-box;
+  width: 1024px;
+  max-width: 100%;
+  min-height: 768px;
+  margin-inline: auto;
+  padding: 24px 32px 72px;
+  overflow: clip;
+  background: #bce580 url('./assets/backgrounds/farm-meadow.png') center / cover no-repeat;
+}
+.create-book--choice { padding-bottom: 40px; }
+.create-book *, .create-book *::before, .create-book *::after { box-sizing: border-box; }
+.create-book__header { position: relative; z-index: 2; }
+.create-book__back { min-width: 148px; }
+.create-book__back-icon { width: 20px; height: 20px; flex: 0 0 auto; background: currentColor; mask: url('./assets/icons/chevron-right.svg') center / contain no-repeat; transform: rotate(180deg); }
+.create-book__heading { position: relative; margin: 24px 0 0; text-align: center; }
+.create-book__paper {
+  position: relative;
+  isolation: isolate;
+  border: 2px solid var(--color-button-border);
+  border-radius: 52px;
+  background: linear-gradient(155deg, var(--color-cream-light), var(--color-cream) 60%, var(--color-cream-bottom));
+  box-shadow: inset 0 4px 1px #ffffffb0, inset 0 -4px 1px #e4be7759, 0 5px 0 #b8955640, 0 12px 18px #52603a38;
+}
+.create-book__paper::before { content: ''; position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: var(--texture-paper) repeat; background-size: var(--texture-size); opacity: var(--texture-opacity); pointer-events: none; }
+.create-book__choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; max-width: 800px; margin: 72px auto 0; }
+.create-book__choice { display: flex; flex-direction: column; align-items: center; width: 100%; padding: 32px 24px 28px; color: var(--color-text); cursor: pointer; }
+.create-book__choice-title { display: flex; align-items: center; justify-content: center; gap: 24px; width: 100%; }
+.create-book__choice-title::before, .create-book__choice-title::after { content: ''; width: 52px; height: 4px; border-radius: 3px; background: #e4bc77; }
+.create-book__illustration { display: block; width: 100%; aspect-ratio: 4 / 3; margin: 12px 0 16px; pointer-events: none; }
+.create-book__illustration img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center bottom; }
+.create-book__choice:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 5px; }
+.create-book__choice:active { box-shadow: inset 0 2px 5px #9f783033, 0 3px 6px #52603a38; }
+.create-book__hint { margin: 32px 0 0; text-align: center; }
+/* 긴 윗줄만 잘라 표시하고 매듭과 구멍은 원본 이미지 그대로 남긴다. */
+.create-book__rope { position: absolute; z-index: 1; width: 80px; height: auto; top: -142px; pointer-events: none; user-select: none; }
+.create-book__rope--left { left: 32px; }
+.create-book__rope--right { right: 32px; }
+.create-book__choice .create-book__rope { clip-path: inset(80px 0 0); }
+.create-book__form { width: 752px; max-width: 100%; margin: 76px auto 0; padding: 32px 56px 40px; }
+.create-book__form-content { position: relative; z-index: 2; }
+.create-book__form .create-book__rope { width: 110px; top: -190px; }
+.create-book__category { width: fit-content; min-width: 120px; margin: 0 auto; padding: 6px 28px; border-radius: var(--radius-pill); background: #e4ed9b; color: var(--color-text); font-size: var(--font-body); font-weight: var(--weight-semibold); box-shadow: inset 0 2px 2px #ffffff80, 0 3px 4px #637a2120; }
+.create-book__form .create-book__heading { margin: 20px 0 28px; }
+.create-book__input { height: 80px; font-size: var(--font-input); }
+.create-book__feedback { min-height: 72px; padding-block: 8px; }
+.create-book__feedback .ui-field-message { margin: 0; }
+.create-book__submit { display: flex; width: 440px; margin-inline: auto; }
+/* 기존 전신 PNG를 확대해 얼굴만 보인다. 폼 너비는 캐릭터와 무관하게 중앙 정렬. */
+.create-book__face { position: absolute; z-index: 1; bottom: 0; left: 0; width: 280px; height: 210px; overflow: hidden; pointer-events: none; }
+.create-book__face img { position: absolute; width: 310px; max-width: none; height: auto; left: -30px; top: 0; }
+.create-book--fairy .create-book__face img { width: 320px; left: -60px; top: 0; }

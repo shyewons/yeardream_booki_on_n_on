@@ -7,12 +7,13 @@ import PostListPage from "./PostListPage.jsx";      // 글 리스트 페이지
 import DashboardPage from "./DashboardPage.jsx";    // 대시보드 페이지
 import PostDetailPage from "./PostDetailPage.jsx";  // 작성한 글 조회 페이지
 import WritePage from "./WritePage.jsx";            // 글쓰기 페이지
+import StartPage from "./StartPage.jsx";            // 서비스 시작 화면
 
 
 export default function App() {
 
     // [page, setPage] → 현재 보여줄 화면
-    // checking: 사용자 확인 중
+    // checking: 서비스 시작 (사용자 확인 → 시작하기)
     // nickname: 별명 설정
     // home: 목장
     // createBook: 새 책 만들기
@@ -33,8 +34,14 @@ export default function App() {
     const [writeDate, setWriteDate] = useState(null);
     const [justSaved, setJustSaved] = useState(false);
     
-    // 앱 시작 시 서버 연결 등에 문제가 생기면 표시할 메시지
-    const [startupError, setStartupError] = useState("");
+    // 확인 완료 시 목적지만 기억하고, 시작하기를 눌렀을 때 이동한다.
+    const [startup, setStartup] = useState({ status: "loading", destination: null, error: "" });
+    const [startupAttempt, setStartupAttempt] = useState(0);
+
+    function retryStartup() {
+        setStartup({ status: "loading", destination: null, error: "" });
+        setStartupAttempt((attempt) => attempt + 1);
+    }
 
     // 인증에 실패했을 때 실행할 공통 함수
     // 브라우저의 토큰을 지우고 별명 설정 화면으로 전환한다.
@@ -53,16 +60,16 @@ export default function App() {
     }, []);
 
 
-    // 앱이 처음 표시될 때 기존 사용자인지 확인한다.
-    // handleAuthError가 useCallback으로 유지되므로
-    // page가 바뀔 때마다 이 검사를 다시 실행하지는 않는다.
+    // 첫 접속과 재시도에만 확인한다. 페이지 이동으로는 다시 실행하지 않는다.
     useEffect(() => {
         let ignore = false;
+        const controller = new AbortController();
+        let timeout;
 
         async function checkUser() {
-            // 저장된 토큰이 없으면 별명 설정부터 시작한다.
+            // 토큰이 없어도 시작하기 화면을 거쳐 별명 설정으로 이동한다.
             if (!getToken()) {
-                setPage("nickname");
+                setStartup({ status: "ready", destination: "nickname", error: "" });
                 return;
             }
 
@@ -70,22 +77,26 @@ export default function App() {
                 // 토큰이 있다는 것만으로는 유효한 사용자인지 알 수 없다.
                 // api()가 저장된 토큰을 요청 헤더에 넣어 보내면
                 // 서버가 해당 토큰의 사용자를 확인한다.                
-                await api("/api/users/me");
+                timeout = setTimeout(() => controller.abort(), 15000);
+                await api("/api/users/me", { signal: controller.signal });
 
                 if (!ignore) {
-                    setPage("home");
+                    setStartup({ status: "ready", destination: "home", error: "" });
                 }
             } catch (error) {
                 if (ignore) return;
 
                 if (error.status === 401) {
                     clearToken();
-                    setPage("nickname");
+                    setStartup({ status: "ready", destination: "nickname", error: "" });
                 } else {
-                    setStartupError(
-                        "사용자 정보를 확인하지 못했어요. 서버 연결을 확인하고 다시 시도해 주세요."
-                    );
+                    setStartup({
+                        status: "error", destination: null,
+                        error: "목장에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+                    });
                 }
+            } finally {
+                clearTimeout(timeout);
             }
         }
 
@@ -93,28 +104,23 @@ export default function App() {
 
         return () => {
             ignore = true;
+            clearTimeout(timeout);
+            controller.abort();
         };
-    }, []);
+    }, [startupAttempt]);
 
     return (
         <>
-            {/* 1. 사용자 확인 중: 안내 또는 오류 메시지 표시 */}
+            {/* 1. 사용자 확인 결과를 받은 뒤 시작하기로 다음 화면에 진입 */}
             {page === "checking" && (
-                <div>
-                    {startupError ? (
-                        <>
-                            <p role="alert">{startupError}</p>
-                            <button
-                                type="button"
-                                onClick={() => window.location.reload()}
-                            >
-                                다시 시도
-                            </button>
-                        </>
-                    ) : (
-                        <p>사용자 정보를 확인하고 있어요...</p>
-                    )}
-                </div>
+                <StartPage
+                    status={startup.status}
+                    error={startup.error}
+                    onStart={() => {
+                        if (startup.status === "ready") setPage(startup.destination);
+                    }}
+                    onRetry={retryStartup}
+                />
             )}
 
             {/* 2. 별명 설정 화면 */}
