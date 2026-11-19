@@ -27,6 +27,7 @@ export default function App() {
     // listPage: 글 리스트의 몇 번째 쪽인지 (글을 보고 돌아와도 보던 쪽이 유지된다)
     // entryId: 글 리스트에서 고른 글 번호
     const [bookId, setBookId] = useState(null);
+    const [bookInfo, setBookInfo] = useState(null);
     const [listPage, setListPage] = useState(1);
     // writeDate: 글쓰기 화면에서 쓸 일기 날짜("2026-11-16"). 동화는 장("ch3" = 3장, "new" = 새 장, null = 마지막 장. format.js 의 chapterTarget)
     // justSaved: 방금 '이야기 저장하기'를 누르고 글 조회로 왔는지 ('저장했어요' 안내 표시용)
@@ -141,6 +142,7 @@ export default function App() {
                     // 고른 책 번호를 기억하고 그 책의 글 리스트(1쪽)로 전환한다.
                     onOpenBook={(book) => {
                         setBookId(book.id);
+                        setBookInfo(book);
                         setListPage(1);
                         setPage("postList");
                     }}
@@ -180,6 +182,7 @@ export default function App() {
             {page === "postList" && (
                 <PostListPage
                     bookId={bookId}
+                    bookInfo={bookInfo}
                     page={listPage}
 
                     // 쪽 번호를 누르면 그 쪽을 다시 조회한다.

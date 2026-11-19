@@ -1,0 +1,122 @@
+[
+  {
+    "id": "01-cat",
+    "group": 1,
+    "text": "고양이가 주인공인 동화를 만들어 봐!",
+    "image": "01-cat.png"
+  },
+  {
+    "id": "02-dog",
+    "group": 1,
+    "text": "강아지가 주인공인 동화를 만들어 봐!",
+    "image": "02-dog.png"
+  },
+  {
+    "id": "03-rabbit",
+    "group": 1,
+    "text": "토끼가 주인공인 동화를 만들어 봐!",
+    "image": "03-rabbit.png"
+  },
+  {
+    "id": "04-dinosaur",
+    "group": 1,
+    "text": "공룡이 나오는 동화를 만들어 봐!",
+    "image": "04-dinosaur.png"
+  },
+  {
+    "id": "05-little-dragon",
+    "group": 1,
+    "text": "작은 용이 주인공인 동화를 만들어 봐!",
+    "image": "05-little-dragon.png"
+  },
+  {
+    "id": "06-bear",
+    "group": 2,
+    "text": "곰이 주인공인 동화를 만들어 봐!",
+    "image": "06-bear.png"
+  },
+  {
+    "id": "07-penguin",
+    "group": 2,
+    "text": "펭귄이 주인공인 동화를 만들어 봐!",
+    "image": "07-penguin.png"
+  },
+  {
+    "id": "08-underwater-school",
+    "group": 2,
+    "text": "바닷속 학교에서 벌어지는 동화를 만들어 봐!",
+    "image": "08-underwater-school.png"
+  },
+  {
+    "id": "09-squirrel",
+    "group": 2,
+    "text": "다람쥐가 주인공인 동화를 만들어 봐!",
+    "image": "09-squirrel.png"
+  },
+  {
+    "id": "10-dokkaebi",
+    "group": 2,
+    "text": "도깨비가 나오는 동화를 만들어 봐!",
+    "image": "10-dokkaebi.png"
+  },
+  {
+    "id": "11-toy-robot",
+    "group": 3,
+    "text": "장난감 로봇이 주인공인 동화를 만들어 봐!",
+    "image": "11-toy-robot.png"
+  },
+  {
+    "id": "12-spaceship",
+    "group": 3,
+    "text": "우주선이 나오는 동화를 만들어 봐!",
+    "image": "12-spaceship.png"
+  },
+  {
+    "id": "13-magic-bag",
+    "group": 3,
+    "text": "신기한 마법 가방이 나오는 동화를 만들어 봐!",
+    "image": "13-magic-bag.png"
+  },
+  {
+    "id": "14-secret-door",
+    "group": 3,
+    "text": "새로운 곳으로 이어지는 비밀 문에 관한 동화를 만들어 봐!",
+    "image": "14-secret-door.png"
+  },
+  {
+    "id": "15-talking-tree",
+    "group": 3,
+    "text": "말을 할 수 있는 나무가 나오는 동화를 만들어 봐!",
+    "image": "15-talking-tree.png"
+  },
+  {
+    "id": "16-cloud-village",
+    "group": 4,
+    "text": "구름 위에 있는 마을을 상상하며 동화를 만들어 봐!",
+    "image": "16-cloud-village.png"
+  },
+  {
+    "id": "17-homesick-star",
+    "group": 4,
+    "text": "집으로 돌아가고 싶은 별에 관한 동화를 만들어 봐!",
+    "image": "17-homesick-star.png"
+  },
+  {
+    "id": "18-flying-shoes",
+    "group": 4,
+    "text": "하늘을 나는 신발이 나오는 동화를 만들어 봐!",
+    "image": "18-flying-shoes.png"
+  },
+  {
+    "id": "19-snowman",
+    "group": 4,
+    "text": "눈사람이 주인공인 동화를 만들어 봐!",
+    "image": "19-snowman.png"
+  },
+  {
+    "id": "20-toy-train",
+    "group": 4,
+    "text": "장난감 기차가 나오는 동화를 만들어 봐!",
+    "image": "20-toy-train.png"
+  }
+]

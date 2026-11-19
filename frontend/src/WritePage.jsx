@@ -18,6 +18,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createWriter } from './writer.js'
 import { evidenceText, fmtDate, todayKST } from './format.js'
+import DiaryWriteView from './DiaryWriteView.jsx'
 
 const MAX_CHARS = 100 // backend/diary_pipeline/input_validation.py 의 MAX_CHARS 와 같은 값
 
@@ -83,7 +84,7 @@ function FixBlock({ sentence, writer }) {
     )
 }
 
-function SentenceCard({ sentence: s, index, total, state, writer }) {
+function SentenceCard({ sentence: s, index, total, state, writer, diary = false, onEdit, onInsert }) {
     const working = !!s.work && s.work.status !== 'error'
     const failed = !!s.work && s.work.status === 'error'
     const pill =
@@ -94,7 +95,24 @@ function SentenceCard({ sentence: s, index, total, state, writer }) {
     const { busy } = state
     return (
         <li className={s.id === state.editingId ? 'card editing' : 'card'} id={`s-${s.id}`}>
-            <div className="top">
+            {diary && s.original && <div className="diary-write__sentence-head">
+                <p className="text">{s.revised || s.original}</p>
+                <div className="diary-write__sentence-tools">
+                    <button type="button" className="diary-write__icon-button" disabled={busy} aria-label={`${index + 1}번째 문장 다시쓰기`} onClick={() => onEdit(s)}><span className="diary-write__icon diary-write__icon--pencil" /></button>
+                    {state.dbMode && <button type="button" className="diary-write__icon-button" disabled={!s.deletable || state.confirmDeleteId !== null} aria-label={`${index + 1}번째 문장 지우기`} onClick={() => writer.askDelete(s.id)}><span className="diary-write__icon diary-write__icon--eraser" /></button>}
+                    <button type="button" className="diary-write__icon-button" disabled={busy || index === 0} aria-label={`${index + 1}번째 문장 위로 이동`} onClick={() => writer.moveSentence(s.id, -1)}><span className="diary-write__icon diary-write__icon--up" /></button>
+                    <button type="button" className="diary-write__icon-button" disabled={busy || index === total - 1} aria-label={`${index + 1}번째 문장 아래로 이동`} onClick={() => writer.moveSentence(s.id, 1)}><span className="diary-write__icon diary-write__icon--down" /></button>
+                </div>
+            </div>}
+            {diary && <details className="diary-write__sentence-info"><summary>문장 정보</summary><div className="diary-write__sentence-meta">
+                {pill}
+                {state.dbMode && s.original && s.saveState === 'error' && <span>저장 안 됨</span>}
+                {s.original && <button type="button" className="diary-write__text-button" disabled={busy} onClick={() => onInsert(s.id)}>이 문장 앞에 넣기</button>}
+            </div>
+                {s.original && s.revised && s.revised !== s.original && <p className="orig">내가 쓴 문장: {s.original}</p>}
+                {s.original && !s.work && <FixBlock sentence={s} writer={writer} />}
+            </details>}
+            {!diary && <div className="top">
                 <span className="no">{index + 1}.</span>{' '}
                 {pill}
                 {state.dbMode && s.original && s.saveState === 'error' && <span className="pill err">저장 안 됨</span>}
@@ -121,19 +139,19 @@ function SentenceCard({ sentence: s, index, total, state, writer }) {
                         {state.deletingId === s.id ? '지우는 중…' : '지우기'}
                     </button>
                 )}
-            </div>
-            {state.confirmDeleteId === s.id && <DeleteConfirm writer={writer} />}
-            {s.original && <p className="text">{s.revised || s.original}</p>}
-            {s.original && s.revised && s.revised !== s.original && <p className="orig">내가 쓴 문장: {s.original}</p>}
+            </div>}
+            {state.confirmDeleteId === s.id && <DeleteConfirm writer={writer} diary={diary} />}
+            {!diary && s.original && <p className="text">{s.revised || s.original}</p>}
+            {!diary && s.original && s.revised && s.revised !== s.original && <p className="orig">내가 쓴 문장: {s.original}</p>}
             {s.work && <WorkBlock work={s.work} />}
-            {s.original && !s.work && <FixBlock sentence={s} writer={writer} />}
+            {!diary && s.original && !s.work && <FixBlock sentence={s} writer={writer} />}
             {s.expression_choice && s.expression_choice.picked && <p className="mode">내가 고른 표현이에요.</p>}
         </li>
     )
 }
 
 // 문장 지우기 확인 (브라우저 창 대신 그 줄 안에서 묻는다). 처음 선택은 '취소', Esc 를 눌러도 취소된다.
-function DeleteConfirm({ writer }) {
+function DeleteConfirm({ writer, diary = false }) {
     const cancelRef = useRef(null)
     useEffect(() => {
         if (cancelRef.current) cancelRef.current.focus()
@@ -145,8 +163,8 @@ function DeleteConfirm({ writer }) {
         <div className="confirm" role="alertdialog" aria-label="문장 지우기 확인">
             <p className="ask">이 문장을 지울까요?</p>
             <div className="row">
-                <button type="button" className="btn-sm del yes" onClick={writer.confirmDelete}>지우기</button>{' '}
-                <button type="button" className="btn-sm" ref={cancelRef} onClick={writer.cancelDelete}>취소</button>
+                <button type="button" className={diary ? 'ui-button ui-button--secondary ui-button--small' : 'btn-sm del yes'} onClick={writer.confirmDelete}>지우기</button>{' '}
+                <button type="button" className={diary ? 'ui-button ui-button--secondary ui-button--small' : 'btn-sm'} ref={cancelRef} onClick={writer.cancelDelete}>취소</button>
             </div>
         </div>
     )
@@ -291,14 +309,14 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
 
     // 커서 두기 · 줄이 보이게 스크롤
     useEffect(() => {
-        if (state.focusTick && boxRef.current && !boxRef.current.disabled) boxRef.current.focus()
-    }, [state.focusTick, state.busy])
+        if (state.focusTick && boxRef.current && !boxRef.current.disabled) boxRef.current.focus({ preventScroll: state.kind === 'diary' })
+    }, [state.focusTick, state.busy, state.kind])
     const scrollId = state.scrollTo ? state.scrollTo.id : null
     const scrollTick = state.scrollTo ? state.scrollTo.tick : 0
     useEffect(() => {
         if (!scrollTick) return
         const el = document.getElementById(`s-${scrollId}`)
-        if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+        if (el && !el.closest('[inert]')) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }, [scrollId, scrollTick])
 
     // 화면이 가려질 때(다른 앱으로 넘어감 · 화면 꺼짐 · 탭 닫힘): 쓰던 문장을 기다리지 않고 바로 임시저장한다.
@@ -373,6 +391,16 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
         if (!value || value === entryDate) return
         writer.noteDateChange(entryDate, value)
         leave(() => onDateChange(value))
+    }
+
+    // 일기만 새 UI를 적용한다. writer의 검사·저장·동화 상태 전이는 그대로 사용한다.
+    if (state.kind === 'diary' && (state.entry || /^\d{4}-/.test(date || ''))) {
+        return <DiaryWriteView
+            state={state} writer={writer} boxRef={boxRef} onChangeDate={changeDate}
+            onBack={() => leave(onBack)} maxChars={MAX_CHARS}
+            renderWork={(work) => <WorkBlock work={work} />}
+            SentenceComponent={SentenceCard}
+        />
     }
 
     return (
