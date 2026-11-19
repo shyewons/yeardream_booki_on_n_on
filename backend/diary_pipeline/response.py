@@ -4,6 +4,7 @@
 import json
 from datetime import datetime, timezone, timedelta
 
+from . import config
 from .input_validation import route_after_validation
 
 KST = timezone(timedelta(hours=9))
@@ -53,9 +54,20 @@ def build_response(state: dict) -> dict:
             "revised_sentence": state.get("revised_sentence", state["original_sentence"]),
             "has_correction": bool(diffs),
             "corrections": corrections,
-            "compliment": state.get("compliment"),           # 고칠 곳이 없을 때만 값이 있음
+            "compliment": state.get("compliment"),           # 고칠 곳이 없을 때만 값이 있음 (일기 모드)
         }
     response["correction"] = correction
+
+    story = None                                         # 동화 모드에서 고칠 곳이 없을 때만 값이 있음
+    if route == "correction" and state.get("expressions"):
+        src = state["original_sentence"]
+        story = {
+            "guide": config.STORY_GUIDE,
+            "options": [{"index": 1, "text": src, "point": config.STORY_ORIGINAL_POINT, "source": "원문"}]
+                       + [{"index": k + 2, "text": e["text"], "point": e["point"], "source": e["source"]}
+                          for k, e in enumerate(state["expressions"][:2])],
+        }
+    response["story"] = story
     response["created_at"] = datetime.now(KST).isoformat(timespec="seconds")
     return {"response": response}
 

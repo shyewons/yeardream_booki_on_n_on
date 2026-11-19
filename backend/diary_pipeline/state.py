@@ -22,7 +22,14 @@ class EvidenceDoc(TypedDict, total=False):   # 근거 문서 (청크 1개)
     source: str                   # "검색" 또는 "규칙"
 
 
+class Expression(TypedDict):      # expressions 의 항목 (동화 모드, 새로 만든 표현 1개)
+    text: str                     # 바꾼 문장
+    point: str                    # 무엇을 바꿔서 어떻게 좋아졌는지 (아이에게 하는 한 문장)
+    source: str                   # "생성" 또는 "원문 유지"(만들지 못해 원문으로 채움)
+
+
 class DiaryState(TypedDict, total=False):
+    mode: str                                # "diary"(일기) / "story"(동화)
     original_sentence: str                   # 유효성 검사를 통과한 원문
     revised_sentence: str                    # ① 교정 문장
     difference: list[DiffItem]               # ② 바뀐 곳
@@ -31,7 +38,8 @@ class DiaryState(TypedDict, total=False):
     evidence_docs: list[EvidenceDoc]         # ④ 대표 근거 (쿼리 1개마다 1개, ⑤가 사용)
     evidence_lists: list[list[EvidenceDoc]]  # ④ 최종 근거 전체 (쿼리 1개마다 최대 3개)
     explanations: list[str]                  # ⑤ 설명문 (difference 1건마다 1개)
-    compliment: str                          # 고칠 곳이 없을 때 칭찬
+    compliment: str                          # 고칠 곳이 없을 때 칭찬 (일기 모드)
+    expressions: list[Expression]            # ⑥ 고칠 곳이 없을 때 새 표현 2개 (동화 모드)
     response: dict                           # 백엔드로 넘길 최종 결과
 
 

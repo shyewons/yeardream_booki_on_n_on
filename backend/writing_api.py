@@ -4,10 +4,11 @@
 
 주소 (main.py 가 app.include_router(writing_api.router) 로 붙인다)
   GET  /question   입력칸 위 안내 질문 (일기/동화, 동화는 고른 주제 반영)
-  GET  /topics     동화 주제 추천
+  GET  /topics     동화 주제 추천 (코드 안 목록 FAIRY_TOPICS. 화면은 DB 의 주제를 쓰는 /api/topics 를 부른다)
   POST /validate   유효성 검사만 (diary_pipeline/input_validation.py). 통과하면 route == "correction"
   POST /correct    교정 단계(diary_pipeline/nodes)를 한 단계씩 실행하고, 단계가 끝날 때마다 결과를 한 줄(NDJSON)씩 흘려보냄
-  POST /suggest    동화 표현 추천 (지금은 demo_nodes.py 의 임시 낱말표)
+  POST /suggest    동화 표현 추천. 모델을 켜면 diary_pipeline/explain.py 의 표현 생성(Kanana), 끄면 demo_nodes.py 의 임시 낱말표
+                   (임시일 때는 응답에 demo=True 와 안내 문구를 넣어, 화면이 '모델이 꺼져 있다'고 알리게 한다)
 
 실행은 main.py 를 본다 (uvicorn main:app). 이 파일은 서버를 직접 만들지 않고 router 와 lifespan 만 내놓는다.
   모델 없이(기본): 모델 노드 자리를 demo_nodes.py 의 임시 노드가 대신한다. 시험용 지연: DEMO_DELAY=1.5
@@ -21,6 +22,7 @@ import importlib.util
 import json
 import os
 import random
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Iterator
@@ -52,11 +54,65 @@ STAGE_LABELS = {                                             # 화면에 보여 
 }
 MODEL_LIBS = ("torch", "transformers", "sentence_transformers", "chromadb", "kiwipiepy")
 
+# 동화 표현 추천을 언제 할지 (환경변수 STORY_SUGGEST_ON 으로도 바꿀 수 있다)
+#   "all"           : 맞춤법을 고친 문장에도 추천한다 (고친 문장을 바탕으로). 기본값
+#   "no_correction" : 맞춤법이 맞은 문장에만 추천한다 (팀원 파이프라인의 run_story 와 같은 기준)
+STORY_SUGGEST_ON = os.environ.get("STORY_SUGGEST_ON", "all").strip().lower()
+STORY_SUGGEST_CHOICES = ("all", "no_correction")
+
+# 교정 문장의 문장부호는 아이가 쓴 그대로 둔다 (끄려면 False).
+#   교정 모델(et5)이 문장부호를 제멋대로 바꾸는 버릇이 있다:
+#     끝: "맞나?" → "맞나?.", "맞을지...." → "맞을지~~."      가운데: "아니... 왜" → "아니 왜"
+#   ② 바뀐 곳 찾기는 문장부호만 바뀐 것을 교정으로 치지 않으므로(config.IGNORE_PUNCT_ONLY), 화면에는 '고친 곳 없음'인데 문장부호만 사라진다.
+#   그래서 교정 문장을 '아이가 쓴 문장에 진짜로 고친 곳(difference)만 바꿔 넣은 것'으로 다시 만든다 (keep_child_punct).
+#   아이가 끝에 문장부호를 안 썼으면 교정 모델이 붙인 마침표는 그대로 둔다 ("놀았다" → "놀았다.").
+KEEP_END_MARKS = True
+_END_MARKS = re.compile(r"[.?!~…]+\s*$")
+
+
+def tidy_end(original: str, revised: str) -> str:
+    """교정 문장(revised)의 끝 문장부호를 아이가 쓴 문장(original)의 끝 문장부호로 맞춘다."""
+    if not KEEP_END_MARKS or not isinstance(original, str) or not isinstance(revised, str):
+        return revised
+    mine = _END_MARKS.search(original.rstrip())
+    if not mine:                                          # 아이가 끝에 문장부호를 안 썼다 → 교정 모델 것 그대로
+        return revised
+    body = _END_MARKS.sub("", revised.rstrip())
+    return body + mine.group(0).strip() if body else revised
+
+
+def keep_child_punct(original: str, revised: str, difference: list) -> str:
+    """아이가 쓴 문장(original)에 진짜로 고친 곳(difference: before → after, 원문 위치 start~end)만 바꿔 넣는다.
+    교정 모델이 문장부호만 바꾼 곳은 아이 것이 그대로 남는다. 끝 문장부호는 tidy_end 와 같은 규칙.
+    위치가 맞지 않는 등 문제가 있으면 교정 모델 문장을 그대로 돌려준다."""
+    if not KEEP_END_MARKS or not isinstance(original, str) or not isinstance(revised, str):
+        return revised
+    try:
+        out = original
+        for d in sorted(difference or [], key=lambda d: d["start"], reverse=True):   # 뒤에서부터 바꿔야 앞 위치가 안 밀린다
+            if out[d["start"]:d["end"]] != d["before"]:
+                return revised
+            out = out[:d["start"]] + d["after"] + out[d["end"]:]
+    except (KeyError, TypeError):
+        return revised
+    out = out.rstrip()
+    if not _END_MARKS.search(out):                        # 아이가 끝에 문장부호를 안 썼다 → 교정 모델이 붙인 것을 붙인다
+        added = _END_MARKS.search(revised.rstrip())
+        if added:
+            out += added.group(0).strip()
+    return out
+
+
+# 모델이 꺼져 있을 때 임시 추천에 붙이는 안내 (아이와 선생님이 '모델이 만든 문장'으로 오해하지 않게)
+DEMO_SUGGEST_NOTICE = "지금은 표현 추천 모델이 꺼져 있어요. 아래 문장은 모델이 만든 것이 아니라 임의로 바꿔 본 예시예요."
+DEMO_SUGGEST_POINT = "(임시 예시) 낱말 하나를 비슷한 말로 바꿔 본 문장이에요."
+
 
 # =====================================================================
 # 입력칸 위에 보여 줄 안내 질문
 # =====================================================================
-# 동화 주제 (아이가 관심 가질 만한 동물 · 사물 · 상상 속 친구). 자유롭게 더하고 빼면 된다.
+# 동화 주제 (아이가 관심 가질 만한 동물 · 사물 · 상상 속 친구).
+# 실제 화면은 DB 의 fairy_topics 표를 쓴다 (/api/topics). 이 목록은 표가 비어 있을 때 대신 쓰는 예비이고, 처음 표를 채운 값과 같다.
 FAIRY_TOPICS = [
     "고양이", "강아지", "토끼", "공룡", "용", "곰", "펭귄", "고래", "다람쥐", "도깨비",
     "로봇", "우주선", "마법 지팡이", "보물 상자", "말하는 나무", "구름", "달", "무지개", "눈사람", "장난감 기차",
@@ -77,11 +133,14 @@ FAIRY_NEXT = [
 ]
 
 
-def get_topics(exclude=(), others: int = 3) -> Dict[str, Any]:
-    """추천 주제 하나(pick)와 다른 주제 몇 개(others). exclude 에 적힌 주제는 되도록 빼고 고른다(다 빼면 처음부터 다시)."""
-    pool = [x for x in FAIRY_TOPICS if x not in set(exclude)]
+def get_topics(exclude=(), others: int = 3, pool=None) -> Dict[str, Any]:
+    """추천 주제 하나(pick)와 다른 주제 몇 개(others). exclude 에 적힌 주제는 되도록 빼고 고른다(다 빼면 처음부터 다시).
+    pool 을 주면 그 목록에서 고른다 (books_api 의 /api/topics 가 DB 의 fairy_topics 를 넘긴다). 없으면 FAIRY_TOPICS."""
+    every = list(pool) if pool else list(FAIRY_TOPICS)
+    others = min(others, len(every) - 1)
+    pool = [x for x in every if x not in set(exclude)]
     if len(pool) < others + 1:
-        pool = list(FAIRY_TOPICS)
+        pool = every
     picked = random.sample(pool, others + 1)
     return {"pick": picked[0], "others": picked[1:]}
 
@@ -187,10 +246,35 @@ def handle_validate(payload: dict) -> dict:
 
 
 def handle_suggest(payload: dict) -> dict:
-    """동화 표현 추천: 문장을 다르게 쓴 예를 돌려준다 {"options": [문장, ...], "demo": True}. 추천할 것이 없으면 options 가 비어 있다.
-    지금은 모델 사용 여부와 상관없이 demo_nodes.py 의 낱말표로 만든 임시 추천이다 (추천 모델이 정해지면 여기만 바꾼다)."""
-    out = {"options": suggest_expressions(str((payload or {}).get("sentence", ""))[:200]), "demo": True}
-    dev_log("suggest", {"request": payload, "response": out})
+    """동화 표현 추천. 받는 값: {"sentence": 문장, "has_correction": 맞춤법을 고쳤는지}
+    돌려주는 값:
+      {"options": [{"text": 바꾼 문장, "point": 무엇이 좋아졌는지 한 줄}, ...],   추천이 없으면 빈 목록
+       "guide": 맨 위 안내, "original_point": '원래 문장' 보기 아래 문구,
+       "demo": 임시 추천인지, "notice": 임시일 때 화면에 꼭 보여 줄 안내, "mode": 실행 모드, "skipped": 추천하지 않은 이유}
+    모델을 켜면 explain.suggest_expressions(Kanana)로 새 표현 2개를 만들고, 만들지 못한 자리('원문 유지')는 빼고 돌려준다.
+    모델이 꺼져 있으면 demo_nodes.py 의 낱말표로 만든 임시 문장을 demo=True 와 안내 문구를 붙여 돌려준다."""
+    p = payload or {}
+    sentence = str(p.get("sentence", "")).strip()[:200]
+    has_correction = bool(p.get("has_correction"))
+    rule = STORY_SUGGEST_ON if STORY_SUGGEST_ON in STORY_SUGGEST_CHOICES else "all"
+    out = {"options": [], "guide": config.STORY_GUIDE, "original_point": config.STORY_ORIGINAL_POINT,
+           "demo": False, "notice": "", "mode": "", "skipped": None}
+    if not sentence:
+        out["skipped"] = "empty"
+    elif rule == "no_correction" and has_correction:
+        out["skipped"] = "has_correction"                      # 맞춤법이 맞은 문장에만 추천하는 설정
+    else:
+        _, mode = pick_nodes()
+        out["mode"] = mode
+        if mode.startswith("실제"):                            # 모델 사용: 팀원 파이프라인의 ⑥ 표현 생성
+            made = _explain.suggest_expressions({"original_sentence": sentence})["expressions"]
+            out["options"] = [{"text": e["text"], "point": e["point"]} for e in made if e.get("source") == "생성"]
+        else:                                                   # 모델 꺼짐: 임시 낱말표 (반드시 임시라고 알린다)
+            out["demo"] = True
+            out["notice"] = DEMO_SUGGEST_NOTICE
+            out["guide"] = "다른 말로 쓸 수도 있어요."
+            out["options"] = [{"text": t, "point": DEMO_SUGGEST_POINT} for t in suggest_expressions(sentence)]
+    dev_log("suggest", {"request": p, "rule": rule, "response": out})
     return out
 
 
@@ -231,8 +315,19 @@ def iter_correction(original_sentence: str) -> Iterator[Dict[str, Any]]:
         state.update(out)
         return {"type": "update", "data": out}
 
-    yield stage("spell_correct");   yield from prepare("spell_correct");   yield step("spell_correct")
+    yield stage("spell_correct");   yield from prepare("spell_correct")
+    ev = step("spell_correct")
+    tidy = tidy_end(original_sentence, state.get("revised_sentence"))   # 끝 문장부호는 아이 것 그대로 ("맞나?." → "맞나?", "맞을지~~." → "맞을지....").
+                                                                         # 바뀐 곳 찾기 전에 고쳐서, 화면 · 저장 · 비교 모두 정리된 문장을 쓴다
+    if tidy != state.get("revised_sentence"):
+        state["revised_sentence"] = tidy
+        ev = {**ev, "data": {**ev["data"], "revised_sentence": tidy}}
+    yield ev
     yield stage("extract_diff");    yield step("extract_diff")
+    kept = keep_child_punct(original_sentence, state.get("revised_sentence"), state.get("difference"))
+    if kept != state.get("revised_sentence"):              # 문장부호를 아이 것으로 되돌린 교정 문장 (화면 · 저장에 쓰인다)
+        state["revised_sentence"] = kept
+        yield {"type": "update", "data": {"revised_sentence": kept}}
     if route_after_diff(state) == "compliment":
         yield step("compliment")
     else:
