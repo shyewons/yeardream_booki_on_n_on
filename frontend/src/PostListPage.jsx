@@ -63,7 +63,7 @@ function EntryRows({ items, fairy = false, onOpenEntry }) {
                     <span className="post-list__preview" title={entry.first || '(쓰던 문장만 있어요)'}>{entry.first || '(쓰던 문장만 있어요)'}</span>
                 </span> : <span className="post-list__entry-text">
                     <span className="post-list__date">{fmtDate(entry.date)}</span>
-                    <span className="post-list__entry-meta">{entry.status === 'done' ? '완성' : '쓰는 중'} · 문장 {entry.sentence_count}개</span>
+                    <span className="post-list__entry-meta">{entry.status !== 'done' && '쓰는 중 · '}{entry.sentence_count}문장</span>
                 </span>}
                 <Arrow />
             </button>

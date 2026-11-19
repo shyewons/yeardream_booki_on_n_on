@@ -233,6 +233,7 @@ export default function App() {
                     key={`${bookId}/${writeDate}`}
                     bookId={bookId}
                     date={writeDate}
+                    bookKind={bookInfo?.kind}
 
                     // 목록으로 버튼
                     onBack={() => setPage("postList")}
