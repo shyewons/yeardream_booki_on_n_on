@@ -29,7 +29,7 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `users_api.py` · `users_repo.py` | `/api/users` 별명 만들기·토큰 확인, 별명 검사 |
 | `books_api.py` | `/api/...` 주소 (책·글 목록, 글 열기, 문장 저장·끼워 넣기·순서 바꾸기, 이야기 저장) |
 | `books_repo.py` | 위 주소가 쓰는 DB 쿼리. 지금 사용자(토큰 주인 또는 더미), 쪽당 개수, 시간(KST) 규칙, 문장마다 동화 주제 저장, 일기 하루치 달성(`day_done_at`) |
-| `reward_rules.py` | 보상 기준 숫자 (일기 하루 3문장 · 지난 날짜 3일 · 주 5일, 동화 장 3문장 · 장 보상 3·6·10 · 끝내기 3장 · 묻기 3·6·9 · 최대 10장) |
+| `reward_rules.py` | 보상 기준 숫자 (일기 하루 3문장 · 지난 날짜 3일 · 주 5일, 동화 장 3문장 · 장 보상 3·6·10 · 끝내기 3장 · 묻기 3·6·10 · 최대 100장 · 장 목록 한 쪽 10장) |
 | `progress_repo.py` | 보상 코드가 부르는 세는 함수 (주간 하루치, 동화 장 보상 구간 · 완성, 주제별 문장 수). 판단 · 받기는 하지 않는다 |
 | `db.py` | `.env` 읽기, DB 접속 |
 | `writing_api.py` | `/question` `/topics` `/validate` `/correct` `/suggest` (예전 시연용 `app.py`) |
@@ -46,9 +46,9 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `POST /api/users` | 별명 만들기 + 토큰 발급 `{"nickname": "몽실이"}` → `{"token", "nickname"}`. 규칙 위반 400, 중복 409 |
 | `GET /api/users/me` | 토큰 확인 → `{"nickname"}`. 토큰 없음·틀림 401 |
 | `GET /api/books?page=1` | 목장(책 목록, 최근에 만든 책부터, 한 쪽 6권). 응답에 별명 `owner` |
-| `POST /api/books` | 책 만들기 `{"kind": "diary"\|"fairy", "title": "몽실", "fairy_topic_id": 3}`. 동화 주제가 `null` 이면 자유 주제 |
+| `POST /api/books` | 책 만들기 `{"kind": "diary"\|"fairy", "title": "몽실", "fairy_topic_id": 3}`. 동화 주제가 `null` 이면 자유 주제 (DB 에는 `자유 주제` 줄 번호) |
 | `PUT /api/books/{책}/topic` | 동화 주제 바꾸기 `{"fairy_topic_id": 3\|null}`. 첫 문장을 쓰기 전에만 (`books_repo.py` 의 `TOPIC_CHANGE_MAX_SENTENCES`) |
-| `GET /api/books/{책}/entries?page=1` | 글 목록(최신 날짜부터, 한 쪽 10개). `writing`: 쓰던 글. 동화는 장 목록과 `story`(장별 문장 수 · 끝내기 정보) |
+| `GET /api/books/{책}/entries?page=1` | 글 목록(최신 날짜부터, 한 쪽 10개). `writing`: 쓰던 글. 동화는 장 목록(1장부터 한 쪽 10장)과 `story`(모든 장의 문장 수 · 보상 진행 · 끝내기 정보) |
 | `GET /api/entries/{글}` | 글 하나(문장·고친 곳·이전/다음 글 번호) |
 | `GET /api/books/{책}/diary/{날짜}` | 그 날짜의 일기 |
 | `POST /api/books/{책}/entries` | 글 열기(없으면 만들기) `{"date": "2026-11-16"}`. 동화는 장: `{"chapter": 3}` / `{"new_chapter": true}` / `{}` 마지막 장 |
@@ -58,9 +58,9 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `POST /api/entries/{글}/complete` | 이야기 저장하기(완성). 일기용 |
 | `POST /api/books/{책}/finish` | 동화 이야기 끝내기 (3문장 이상 쓴 장이 3개 이상. 끝낸 뒤에는 다시쓰기만) |
 | `POST /api/books/{책}/finish-later` | 동화: 끝낼지 물었을 때 '다음에 이어 쓸래요' `{"upto": 3}` (그 구간은 다시 묻지 않음) |
-| `GET /api/topics?exclude=고양이,용&others=2` | 동화 주제 추천 (DB `fairy_topics` 의 켜진 주제) → `{"pick", "others", "ids", "items": [{id, title, prompt}]}` |
+| `GET /api/topics?exclude=토끼,작은 용&others=2` | 동화 주제 추천 (DB `fairy_topics` 의 켜진 주제) → `{"pick", "others", "ids", "items": [{id, title, prompt, opening}]}` |
 | `GET /question?passed=0&kind=fairy&topic=고양이` | 입력칸 위 질문 |
-| `GET /topics?exclude=고양이,용` | 동화 주제 추천 (코드 안 목록. 화면은 `/api/topics` 를 쓴다) |
+| `GET /topics?exclude=토끼,작은 용` | 동화 주제 추천 (코드 안 목록. 화면은 `/api/topics` 를 쓴다) |
 | `POST /validate` | 유효성 검사 `{"user_input", "validation_attempt", "previous_sentences", "choice_picks", "kind"}` |
 | `POST /correct` | 교정(단계별 NDJSON) `{"original_sentence"}` |
 | `POST /suggest` | 동화 표현 추천(임시) `{"sentence"}` |
@@ -73,7 +73,7 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 
 - 쪽당 개수, 더미 별명: `.env` 또는 `books_repo.py` 위쪽
 - 유효성 기준(일기/동화): `diary_pipeline/input_validation.py` 맨 위 `KIND_RULES`, `KIND_MESSAGES`
-- 동화 주제: DB `fairy_topics` 표 (`prompt` 시작 문장, `is_active = 0` 이면 추천에서 빠진다). 표가 비면 `writing_api.py`의 `FAIRY_TOPICS`
+- 동화 주제: DB `fairy_topics` 표 (요구사항정의서 '동화주제' 10개. `prompt` 쓰기 안내, `opening` 시작 상황, `is_active = 0` 이면 추천에서 빠진다). '내가 정할래요'는 `자유 주제` 줄(꺼져 있음)을 가리킨다. 표가 비면 `writing_api.py`의 `FAIRY_TOPICS`
 - 동화 주제를 바꿀 수 있는 때: `books_repo.py`의 `TOPIC_CHANGE_MAX_SENTENCES` (0 = 첫 문장 전에만, `None` = 언제나)
 - 동화 질문 문구: `writing_api.py`의 `FAIRY_FIRST`, `FAIRY_NEXT`
 - 보상 기준 숫자: `reward_rules.py`

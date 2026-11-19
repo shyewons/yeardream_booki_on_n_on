@@ -9,6 +9,8 @@
   다시쓰기 · 지우기 · 표현 선택으로 빠진 옛 줄과, 확인하기 전의 임시저장(entries.draft_text)은 세지 않는다.
 
 정한 날: 2026-11-18 (팀 의논). 동화는 같은 날 오후에 '10문장 = 한 페이지'에서 '장' 기준(디자인 04C)으로 바꿨다
+        2026-11-19 요구사항정의서(아침본)에 맞춰 장 한도를 10 → 100 으로 늘리고, 끝낼지 묻는 장을 3·6·9 → 3·6·10 으로 바꿨다
+        (정의서는 10장 보상 뒤에도 같은 책에 계속 쓸 수 있게 한다. 100은 사실상 제한 없음에 가까운 안전장치)
 """
 
 # ── 일기 ──
@@ -20,8 +22,9 @@ WEEK_MIN_DAYS = 5           # 한 주(월~일, 한국 시간)에 하루치를 �
 STORY_CHAPTER_MIN_SENTENCES = 3       # 보상 · 끝내기에 세는 장: 보이는 문장이 이만큼 이상인 장
 STORY_REWARD_CHAPTERS = (3, 6, 10)    # 장 보상 구간: 위 기준을 채운 장이 이 수가 되면 보상 (디자인 04C 의 선물 3개)
 STORY_FINISH_MIN_CHAPTERS = 3         # '이야기 끝내기'를 할 수 있는 최소 장 수 (완성 보상도 이 기준. 첫 장 보상 구간과 같게)
-STORY_FINISH_ASK_AT = (3, 6, 9)       # 이 장 수를 채우고 나갈 때 '끝낼까요?'를 한 번씩 묻는다. 마지막 장(STORY_MAX_CHAPTERS)은 채운 뒤 나갈 때마다 묻는다
-STORY_MAX_CHAPTERS = 10               # 이야기 하나의 최대 장 수
+STORY_FINISH_ASK_AT = (3, 6, 10)      # 이 장 수를 채우고 나갈 때 '끝낼까요?'를 한 번씩 묻는다 (선물 구간과 같게). 마지막 장(STORY_MAX_CHAPTERS)은 채운 뒤 나갈 때마다 묻는다
+STORY_MAX_CHAPTERS = 100              # 이야기 하나의 최대 장 수 (닿으면 '○장까지 쓸 수 있어요' 안내)
+STORY_CHAPTERS_PER_PAGE = 10          # 동화 장 목록 한 쪽에 보여 줄 장 수 (일기 목록처럼 10개씩)
 
 
 def public():
@@ -34,4 +37,5 @@ def public():
         "story_finish_min_chapters": STORY_FINISH_MIN_CHAPTERS,
         "story_finish_ask_at": list(STORY_FINISH_ASK_AT),
         "story_max_chapters": STORY_MAX_CHAPTERS,
+        "story_chapters_per_page": STORY_CHAPTERS_PER_PAGE,
     }

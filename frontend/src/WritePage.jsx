@@ -1,7 +1,7 @@
 // 글쓰기 화면 (요구사항정의서 차트 - 화면ID 시트 - 05~09번 화면)
 // 한 문장씩 쓴다: 확인하기 → 유효성 검사 → 교정 → 문장 저장.
 //   일기: 다 쓰면 '다 썼어요' → 전체 글 → '이야기 저장하기'.
-//   동화: 장(1~10장)마다 쓴다. 문장은 쓰는 대로 저장되고, '이야기 끝내기'로 이야기 전체를 끝낸다 (FinishOffer).
+//   동화: 장(1장 ~ 100장, reward_rules.STORY_MAX_CHAPTERS)마다 쓴다. 문장은 쓰는 대로 저장되고, '이야기 끝내기'로 이야기 전체를 끝낸다 (FinishOffer).
 // 동작은 모두 writer.js 에 있고, 이 파일은 그 상태를 그리기만 한다.
 //   bookId 책의 글을 열어 문장마다 저장한다 (일기는 date 의 글, 동화는 date 자리의 'ch3' · 'new' 로 장을 고른다).
 //
@@ -10,9 +10,10 @@
 //   onSaved(글 번호)   '이야기 저장하기' · '이야기 끝내기'가 끝남 → 글 조회 화면으로
 //   onDateChange(날짜 · 장)   '날짜 바꾸기'로 다른 날짜의 일기를, 동화 '다음 장'으로 다음 장('ch4')을 연다
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
-// 동화는 3·6·9장째를 채우거나 10장을 채운 뒤 '← 목록으로'를 누르면, 나가기 전에 화면 안에서 끝낼지 묻는다 (FinishOffer).
+// 동화는 3·6·10장째를 채우거나 마지막 장(100장)을 채운 뒤 '← 목록으로'를 누르면, 나가기 전에 화면 안에서 끝낼지 묻는다 (FinishOffer).
+// 일기는 하루치(3문장)를 채웠는데 저장하지 않고 '← 목록으로'를 누르면 저장할지 묻는다 (SaveOffer). 하루치를 채우면 작은 안내(#day-done)를 띄운다.
 // 동화 '← 이전 장' · '다음 장 →': 있는 장으로는 바로, 새 장은 '새로 쓸까요?'를 묻고 연다 (onDateChange 로 'ch4' 를 넘긴다).
-//   마지막 장에서 새 장을 쓸 수 없으면(빈 장 · 10장 · 끝낸 이야기) '다음 장'은 눌리지 않는다. 장 번호는 화면 번호(display_no)로 보여 준다.
+//   마지막 장에서 새 장을 쓸 수 없으면(빈 장 · 100장 · 끝낸 이야기) '다음 장'은 눌리지 않는다. 장 번호는 화면 번호(display_no)로 보여 준다.
 // 모양(CSS)은 아직 입히지 않았다. className 과 id 는 나중에 디자인을 입힐 때 쓰라고 남겨 둔 것이다.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -172,7 +173,7 @@ function NextChapterAsk({ chapterNo, writer, onGo }) {
     )
 }
 
-// 동화: 이야기 끝내기 묻기 (나갈 때 3·6·9장 · 10장, 또는 '이야기 끝내기' 버튼). 처음 선택은 '계속 쓸래요', Esc 를 눌러도 같다.
+// 동화: 이야기 끝내기 묻기 (나갈 때 3·6·10장 · 마지막 장, 또는 '이야기 끝내기' 버튼). 처음 선택은 '계속 쓸래요', Esc 를 눌러도 같다.
 function FinishOffer({ ask, writer, onLeave, saving, error }) {
     const stayRef = useRef(null)
     useEffect(() => {
@@ -206,8 +207,35 @@ function FinishOffer({ ask, writer, onLeave, saving, error }) {
     )
 }
 
+// 일기: 하루치를 채웠는데 저장하지 않고 나가려 할 때 묻기. 처음 선택은 '계속 쓸래요', Esc 를 눌러도 같다.
+function SaveOffer({ writer, onLeave, saving, error }) {
+    const stayRef = useRef(null)
+    useEffect(() => {
+        if (stayRef.current) stayRef.current.focus()
+        const onKey = (e) => { if (e.key === 'Escape') writer.closeSave('esc') }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [writer])
+    return (
+        <div className="confirm" id="save-offer" role="alertdialog" aria-label="일기 저장하기">
+            <p className="ask">일기를 저장할까요?</p>
+            <p className="note">저장하면 목록에 '완성'으로 보여요. 저장하지 않아도 쓴 문장은 그대로 남아요.</p>
+            {error && <p role="alert" id="save-offer-error">{error}</p>}
+            <div className="row">
+                <button type="button" className="primary" id="save-yes" disabled={saving} onClick={writer.saveStory}>
+                    {saving ? '저장 중…' : '저장하기'}
+                </button>{' '}
+                <button type="button" className="btn-sm" id="save-later" disabled={saving}
+                        onClick={() => { writer.closeSave('leave'); onLeave() }}>저장하지 않고 나갈래요</button>{' '}
+                <button type="button" className="btn-sm" id="save-stay" ref={stayRef} disabled={saving}
+                        onClick={() => writer.closeSave('stay')}>계속 쓸래요</button>
+            </div>
+        </div>
+    )
+}
+
 // 동화: 주제 바꾸기 (추천 1개 + 다른 주제 3개 + 더 보기 + 내가 정할래요 + 그대로 둘래요)
-// 주제는 새 책 만들기에서 고르고, 여기서는 첫 문장을 쓰기 전에만 바꿀 수 있다 (writer.topicChangeable)
+// 주제는 새 책 만들기에서 고르고, 여기서는 책의 첫 문장을 쓰기 전에만 바꿀 수 있다 (writer.topicChangeable. 2장부터는 못 바꾼다)
 function TopicBox({ box, writer, error }) {
     return (
         <div id="topic-box">
@@ -378,7 +406,7 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
     return (
         <div className="write-page">
             <header>
-                <button type="button" className="to-list btn-sm" id="to-list" onClick={() => { if (!writer.askComplete()) leave(onBack) }}>
+                <button type="button" className="to-list btn-sm" id="to-list" onClick={() => { if (!writer.askComplete() && !writer.askSave()) leave(onBack) }}>
                     ← 목록으로
                 </button>
                 <h1 id="title">{title}</h1>
@@ -406,6 +434,17 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
             {state.finishAsk && (
                 <FinishOffer ask={state.finishAsk} writer={writer} onLeave={() => leave(onBack)}
                              saving={state.finishSaving} error={state.finishError} />
+            )}
+
+            {state.saveAsk && (
+                <SaveOffer writer={writer} onLeave={() => leave(onBack)} saving={state.storySaving} error={state.storyError} />
+            )}
+
+            {/* 일기: 하루치(3문장)를 채웠다는 작은 안내 (보상 기준. 저장 버튼을 누르지 않아도 이미 채운 것이다) */}
+            {state.kind === 'diary' && state.dbMode && state.dayDoneAt && (
+                <p id="day-done" className="note" role="status">
+                    ✓ 하루치 일기({state.rules ? state.rules.diary_day_sentences : 3}문장)를 채웠어요
+                </p>
             )}
 
             {/* 동화: 마지막 장 안내 · 끝낸 이야기 안내 */}
@@ -480,6 +519,10 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
                             <p id="topic-line">
                                 <span>{state.topic ? `주제: ${state.topic}` : '주제를 스스로 정했어요'}</span>
                                 {state.topicPrompt && <><br /><span id="topic-prompt">{state.topicPrompt}</span></>}
+                                {/* 시작 상황은 이야기의 첫 장에서만 (이어 쓰는 장에서는 앞 장의 끝 문장을 보여 준다) */}
+                                {state.topicOpening && (state.displayNo || state.chapterNo) === 1 && (
+                                    <><br /><span id="topic-opening">{state.topicOpening}</span></>
+                                )}
                                 {writer.topicChangeable() && (
                                     <>
                                         {' '}
