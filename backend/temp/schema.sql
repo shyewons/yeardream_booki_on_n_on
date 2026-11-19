@@ -60,7 +60,7 @@ CREATE TABLE books (
   kind        ENUM('diary','fairy') NOT NULL COMMENT '종류: 일기/동화',
   fairy_topic_id BIGINT UNSIGNED NULL COMMENT '동화: 책 만들 때 고른 주제. 내가 정할래요 = 자유 주제 줄 (일기는 늘 NULL)',
   finished_at  DATETIME NULL COMMENT '동화: 이야기 끝내기를 누른 시각 (NULL = 아직 쓰는 중)',
-  finish_asked INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '동화: 끝낼지 물어보고 아이가 이어 쓰기를 고른 마지막 장 구간 (3·6·10)',
+  finish_asked INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '동화: 끝낼지 물어보고 아이가 이어 쓰기를 고른 마지막 장 구간 (reward_rules.STORY_FINISH_ASK_AT, 지금은 묻지 않아 0)',
   title       VARCHAR(60)  NOT NULL COMMENT '제목 (일기는 동물 이름)',
   cover       VARCHAR(20)  NULL COMMENT '표지/동물 모양 (양, 알파카 등)',
   visibility  ENUM('full','stats') NOT NULL DEFAULT 'stats' COMMENT '공개여부: 원문 공개/통계만 (협의 필요)',

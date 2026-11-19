@@ -27,6 +27,8 @@ export default function App() {
     // entryId: 글 리스트에서 고른 글 번호
     const [bookId, setBookId] = useState(null);
     const [listPage, setListPage] = useState(1);
+    // homePage: 목장(책 목록)의 몇 번째 쪽인지 (책을 열었다가 목장으로 돌아와도 보던 쪽이 유지된다)
+    const [homePage, setHomePage] = useState(1);
     // writeDate: 글쓰기 화면에서 쓸 일기 날짜("2026-11-16"). 동화는 장("ch3" = 3장, "new" = 새 장, null = 마지막 장. format.js 의 chapterTarget)
     // justSaved: 방금 '이야기 저장하기'를 누르고 글 조회로 왔는지 ('저장했어요' 안내 표시용)
     const [entryId, setEntryId] = useState(null);
@@ -128,6 +130,10 @@ export default function App() {
             {/* 3. 목장 화면 */}
             {page === "home" && (
                 <HomeListPage
+                    // 보던 쪽 (목장으로 돌아와도 유지)
+                    page={homePage}
+                    onPageChange={setHomePage}
+
                     // 새 책 만들기 버튼을 누르면 생성 화면으로 전환
                     onCreateBook={() => setPage("createBook")}
 
@@ -150,9 +156,15 @@ export default function App() {
             {/* 4. 새 책 만들기 화면 */}
             {page === "createBook" && (
                 <CreateBookPage
-                    // 책 생성 성공 후 목장으로 복귀
-                    // 목장 컴포넌트가 다시 표시되면서 목록을 새로 조회한다.
-                    onCreated={() => setPage("home")}
+                    // 책 생성 성공 후 바로 그 책의 글쓰기 화면으로 (요구사항정의서: 책 이름 설정 → 05번 글쓰기)
+                    // writeDate 가 null 이면 일기는 오늘, 동화는 마지막 장(새 책이면 1장)을 연다.
+                    // 글쓰기에서 '← 목록으로'를 누르면 이 책의 글 리스트(1쪽)로 간다.
+                    onCreated={(book) => {
+                        setBookId(book.id);
+                        setListPage(1);
+                        setWriteDate(null);
+                        setPage("write");
+                    }}
                     
                     // 취소하면 목장으로 복귀
                     onCancel={() => setPage("home")}

@@ -115,7 +115,7 @@ function StoryChapters({ data, back, onOpenEntry, onWrite, onAuthError, reload, 
                     )}
                     {ask === 'finish' && (
                         <div className="confirm" id="finish-ask" role="alertdialog" aria-label="이야기 끝내기">
-                            <p className="ask">이야기를 끝낼까요? 끝내면 새 장은 더 쓸 수 없고, 고쳐 쓰기만 할 수 있어요.</p>
+                            <p className="ask">{minSentences}문장 이상 쓴 장이 {story.qualified}개예요. 이야기를 끝낼까요? 끝내면 새 장은 더 쓸 수 없고, 고쳐 쓰기만 할 수 있어요.</p>
                             {error && <p role="alert">{error}</p>}
                             <button type="button" id="finish-yes" disabled={sending} onClick={finish}>{sending ? '끝내는 중...' : '이야기 끝내기'}</button>{' '}
                             <button type="button" disabled={sending} onClick={() => { setAsk(null); setError('') }}>취소</button>

@@ -10,8 +10,8 @@
 //   onSaved(글 번호)   '이야기 저장하기' · '이야기 끝내기'가 끝남 → 글 조회 화면으로
 //   onDateChange(날짜 · 장)   '날짜 바꾸기'로 다른 날짜의 일기를, 동화 '다음 장'으로 다음 장('ch4')을 연다
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
-// 동화는 3·6·10장째를 채우거나 마지막 장(100장)을 채운 뒤 '← 목록으로'를 누르면, 나가기 전에 화면 안에서 끝낼지 묻는다 (FinishOffer).
-// 일기는 하루치(3문장)를 채웠는데 저장하지 않고 '← 목록으로'를 누르면 저장할지 묻는다 (SaveOffer). 하루치를 채우면 작은 안내(#day-done)를 띄운다.
+// 동화는 마지막 장(100장)을 채운 뒤 '← 목록으로'를 누르면, 나가기 전에 화면 안에서 끝낼지 묻는다 (FinishOffer).
+// 일기는 하루치(3문장)를 채웠는데 저장하지 않고 '← 목록으로' · '날짜 바꾸기'를 하면 저장할지 묻는다 (SaveOffer). 하루치를 채우면 작은 안내(#day-done)를 띄운다.
 // 동화 '← 이전 장' · '다음 장 →': 있는 장으로는 바로, 새 장은 '새로 쓸까요?'를 묻고 연다 (onDateChange 로 'ch4' 를 넘긴다).
 //   마지막 장에서 새 장을 쓸 수 없으면(빈 장 · 100장 · 끝낸 이야기) '다음 장'은 눌리지 않는다. 장 번호는 화면 번호(display_no)로 보여 준다.
 // 모양(CSS)은 아직 입히지 않았다. className 과 id 는 나중에 디자인을 입힐 때 쓰라고 남겨 둔 것이다.
@@ -173,7 +173,7 @@ function NextChapterAsk({ chapterNo, writer, onGo }) {
     )
 }
 
-// 동화: 이야기 끝내기 묻기 (나갈 때 3·6·10장 · 마지막 장, 또는 '이야기 끝내기' 버튼). 처음 선택은 '계속 쓸래요', Esc 를 눌러도 같다.
+// 동화: 이야기 끝내기 묻기 (나갈 때 마지막 장, 또는 '이야기 끝내기' 버튼). 처음 선택은 '계속 쓸래요', Esc 를 눌러도 같다.
 function FinishOffer({ ask, writer, onLeave, saving, error }) {
     const stayRef = useRef(null)
     useEffect(() => {
@@ -182,9 +182,11 @@ function FinishOffer({ ask, writer, onLeave, saving, error }) {
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
     }, [writer])
-    const question = ask.last ? '마지막 장까지 다 썼어요! 이야기를 끝낼까요?'
-        : ask.upto ? `${ask.upto}장까지 썼어요. 여기서 이야기를 끝낼까요, 다음에 이어 쓸까요?`
-        : '이야기를 끝낼까요?'
+    // 숫자는 장 번호가 아니라 '기준(3문장)을 채운 장'의 개수다 (빈 장 · 1~2문장 장은 세지 않는다)
+    const counted = `${ask.min}문장 이상 쓴 장이 ${ask.upto || ask.qualified}개`
+    const question = ask.last ? `마지막 장(${ask.max}장)까지 다 썼어요! 이야기를 끝낼까요?`
+        : ask.upto ? `${counted}가 됐어요. 여기서 이야기를 끝낼까요, 다음에 이어 쓸까요?`
+        : `${counted}예요. 이야기를 끝낼까요?`
     return (
         <div className="confirm" id="complete-offer" role="alertdialog" aria-label="이야기 끝내기">
             <p className="ask">{question}</p>
@@ -376,6 +378,13 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
         document.title = state.dbMode && state.bookTitle ? `${state.bookTitle} 쓰기` : '글쓰기'
     }, [state.dbMode, state.bookTitle])
 
+    // 일기 날짜가 오늘에서 며칠 지났는지. 보상 기준 일수(rules.diary_late_days)를 넘었을 때만 숫자, 아니면 null
+    const lateDays = (() => {
+        if (state.kind !== 'diary' || !entryDate || !state.rules) return null
+        const days = Math.round((Date.parse(todayKST()) - Date.parse(entryDate)) / 86400000)
+        return days > state.rules.diary_late_days ? days : null
+    })()
+
     const editing = state.sentences.find((s) => s.id === state.editingId)
     const insertNext = state.insertAt !== null ? state.sentences[state.insertAt] : null
     const written = state.sentences.filter((s) => s.original)
@@ -400,7 +409,8 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
         const value = e.target.value
         if (!value || value === entryDate) return
         writer.noteDateChange(entryDate, value)
-        leave(() => onDateChange(value))
+        const go = () => onDateChange(value)
+        if (!writer.askSave(go)) leave(go)            // 저장 안 한 하루치 일기면 먼저 묻는다 (저장하면 고른 날짜로 간다)
     }
 
     return (
@@ -437,13 +447,20 @@ export default function WritePage({ bookId, date, onBack, onSaved, onDateChange,
             )}
 
             {state.saveAsk && (
-                <SaveOffer writer={writer} onLeave={() => leave(onBack)} saving={state.storySaving} error={state.storyError} />
+                <SaveOffer writer={writer} onLeave={() => leave(writer.pendingNext() || onBack)} saving={state.storySaving} error={state.storyError} />
             )}
 
             {/* 일기: 하루치(3문장)를 채웠다는 작은 안내 (보상 기준. 저장 버튼을 누르지 않아도 이미 채운 것이다) */}
             {state.kind === 'diary' && state.dbMode && state.dayDoneAt && (
                 <p id="day-done" className="note" role="status">
                     ✓ 하루치 일기({state.rules ? state.rules.diary_day_sentences : 3}문장)를 채웠어요
+                </p>
+            )}
+
+            {/* 일기: 오래된 날짜 안내. 날짜 + rules.diary_late_days(3일)가 지난 일기는 써도 하루치(보상 기록)에 들어가지 않는다 */}
+            {state.kind === 'diary' && state.dbMode && !state.dayDoneAt && lateDays !== null && (
+                <p id="late-note" className="note" role="status">
+                    {lateDays}일 전 일기라 보상 기록에는 들어가지 않아요. 일기는 그대로 쓰고 저장할 수 있어요.
                 </p>
             )}
 

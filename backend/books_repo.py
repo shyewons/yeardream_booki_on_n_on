@@ -424,7 +424,7 @@ def open_entry(user_id, book_id, day=None, chapter=None, new_chapter=False):
 #   빈 장: 문장을 다 지운 장은 목록에서 숨기고 번호는 그대로 둔다 (이미 받은 보상과 번호가 어긋나지 않게)
 #   끝내기: 3문장 이상 쓴 장이 STORY_FINISH_MIN_CHAPTERS 개 이상이면 '이야기 끝내기'(books.finished_at).
 #           끝낸 이야기는 다시쓰기(고쳐 쓰기)만 된다: 새 장 · 새 문장 · 위에 넣기 · 지우기 · 순서 바꾸기는 400
-#   끝낼지 묻기: 3·6·10장째를 채웠을 때 한 번씩 (reward_rules.STORY_FINISH_ASK_AT) (아이가 '다음에 이어 쓸래요'를 고르면 books.finish_asked 에 그 구간을 적는다)
+#   끝낼지 묻기: STORY_FINISH_ASK_AT 장째를 채웠을 때 한 번씩 (지금은 비워 둬서 묻지 않는다) (아이가 '다음에 이어 쓸래요'를 고르면 books.finish_asked 에 그 구간을 적는다)
 #           마지막 장(100장)은 채운 뒤 나갈 때마다 묻는다. 묻는 판단은 화면이 story 정보로 한다 (writer.js)
 # 장 번호가 없는 예전 동화 글(chapter_no NULL)은 1장으로 본다.
 FINISHED_MSG = "끝낸 이야기는 고쳐 쓰기만 할 수 있어요."
@@ -582,7 +582,7 @@ def finish_story(user_id, book_id):
 
 
 def finish_later(user_id, book_id, upto):
-    """끝낼지 물었을 때 '다음에 이어 쓸래요': 그 구간(3·6·10)을 적어 두어 다시 묻지 않는다. 책이 없거나 내 동화 책이 아니면 None."""
+    """끝낼지 물었을 때 '다음에 이어 쓸래요': 그 구간(reward_rules.STORY_FINISH_ASK_AT, 지금은 비어 있어 쓰이지 않음)을 적어 두어 다시 묻지 않는다. 책이 없거나 내 동화 책이 아니면 None."""
     upto = _opt_int(upto)
     if upto not in rules.STORY_FINISH_ASK_AT:
         raise BadRequest("묻는 구간이 맞지 않아요.")
@@ -676,28 +676,31 @@ def _clean_text(v, name):
 
 # 자유 주제('내가 정할래요')도 fairy_topics 의 한 줄이다: 제목 FREE_TOPIC_TITLE, is_active = 0 (추천에는 안 나온다).
 # 책 · 문장에는 그 줄의 번호를 적어 '주제 없음(NULL)'과 구분한다 (보상 세트를 주제에 이을 때 자유 주제도 이을 수 있게).
-# 그 줄이 없으면(표를 새로 만든 직후 등) 예전처럼 NULL 로 저장한다. 화면에는 자유 주제를 늘 None 으로 보낸다.
+# 그 줄이 없으면(표를 새로 만든 직후 등) 예전처럼 NULL 로 저장한다. NULL 도 자유 주제로 본다. 화면에는 자유 주제를 늘 None 으로 보낸다.
+# 제목은 띄어쓰기를 빼고 비교한다 ('자유 주제' · '자유주제' 모두 같은 줄).
 FREE_TOPIC_TITLE = "자유 주제"
+_FREE_KEY = FREE_TOPIC_TITLE.replace(" ", "")
+_FREE_SQL = "REPLACE(t.title, ' ', '') = :free"       # fairy_topics 를 t 로 부를 때 '자유 주제 줄인지'
 
 
 def list_topics():
     """켜져 있는 동화 주제 [{id, title, prompt, opening}] (fairy_topics.is_active = 1). 하나도 없으면 빈 목록.
     prompt 는 주제 카드에 보이는 쓰기 안내 (예: 토끼가 주인공인 동화를 만들어 봐!),
     opening 은 글쓰기 첫 장에 보이는 시작 상황 (예: 토끼가 숲에서 … 누구의 발자국일까?). 없으면 None."""
-    return db.query("SELECT id, title, prompt, opening FROM fairy_topics WHERE is_active = 1 AND title <> :free ORDER BY id",
-                    {"free": FREE_TOPIC_TITLE})
+    return db.query(f"SELECT t.id, t.title, t.prompt, t.opening FROM fairy_topics t WHERE t.is_active = 1 AND NOT ({_FREE_SQL}) ORDER BY t.id",
+                    {"free": _FREE_KEY})
 
 
 def _free_topic_id(q):
     """자유 주제 줄의 번호. 없으면 None. q 는 db 또는 트랜잭션(tx)."""
-    rows = q.query("SELECT id FROM fairy_topics WHERE title = :free ORDER BY id LIMIT 1", {"free": FREE_TOPIC_TITLE})
+    rows = q.query(f"SELECT t.id FROM fairy_topics t WHERE {_FREE_SQL} ORDER BY t.id LIMIT 1", {"free": _FREE_KEY})
     return rows[0]["id"] if rows else None
 
 
 def _book_topic(q, book_id):
     """책의 주제 {id, title, prompt, opening}. 자유 주제 · 일기면 None. q 는 db 또는 트랜잭션(tx)."""
-    rows = q.query("""SELECT t.id, t.title, t.prompt, t.opening FROM books b JOIN fairy_topics t ON t.id = b.fairy_topic_id
-                       WHERE b.id = :bid AND t.title <> :free""", {"bid": book_id, "free": FREE_TOPIC_TITLE})
+    rows = q.query(f"""SELECT t.id, t.title, t.prompt, t.opening FROM books b JOIN fairy_topics t ON t.id = b.fairy_topic_id
+                        WHERE b.id = :bid AND NOT ({_FREE_SQL})""", {"bid": book_id, "free": _FREE_KEY})
     return rows[0] if rows else None
 
 

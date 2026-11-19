@@ -29,7 +29,7 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `users_api.py` · `users_repo.py` | `/api/users` 별명 만들기·토큰 확인, 별명 검사 |
 | `books_api.py` | `/api/...` 주소 (책·글 목록, 글 열기, 문장 저장·끼워 넣기·순서 바꾸기, 이야기 저장) |
 | `books_repo.py` | 위 주소가 쓰는 DB 쿼리. 지금 사용자(토큰 주인 또는 더미), 쪽당 개수, 시간(KST) 규칙, 문장마다 동화 주제 저장, 일기 하루치 달성(`day_done_at`) |
-| `reward_rules.py` | 보상 기준 숫자 (일기 하루 3문장 · 지난 날짜 3일 · 주 5일, 동화 장 3문장 · 장 보상 3·6·10 · 끝내기 3장 · 묻기 3·6·10 · 최대 100장 · 장 목록 한 쪽 10장) |
+| `reward_rules.py` | 보상 기준 숫자 (일기 하루 3문장 · 지난 날짜 3일 · 주 5일, 동화 장 3문장 · 장 보상 3·6·10 · 끝내기 3장 · 중간 묻기 없음(100장에서만) · 최대 100장 · 장 목록 한 쪽 10장) |
 | `progress_repo.py` | 보상 코드가 부르는 세는 함수 (주간 하루치, 동화 장 보상 구간 · 완성, 주제별 문장 수). 판단 · 받기는 하지 않는다 |
 | `db.py` | `.env` 읽기, DB 접속 |
 | `writing_api.py` | `/question` `/topics` `/validate` `/correct` `/suggest` (예전 시연용 `app.py`) |

@@ -23,7 +23,7 @@
   PUT  /api/entries/{entry_id}/draft              쓰던 문장 임시저장  body: {"text": "...", "mode": "new|edit|insert", "seq": 3}  (글자가 비면 지운다)
   POST /api/entries/{entry_id}/complete           '이야기 저장하기' (상태 done). 일기용
   POST /api/books/{book_id}/finish                동화 '이야기 끝내기' (3문장 이상 쓴 장이 3개 이상일 때. 모든 장 done, 끝낸 뒤에는 다시쓰기만)
-  POST /api/books/{book_id}/finish-later          동화: 끝낼지 물었을 때 '다음에 이어 쓸래요' body: {"upto": 3|6|10} (그 구간은 다시 묻지 않는다. reward_rules.STORY_FINISH_ASK_AT)
+  POST /api/books/{book_id}/finish-later          동화: 끝낼지 물었을 때 '다음에 이어 쓸래요' body: {"upto": N} (그 구간은 다시 묻지 않는다. N 은 reward_rules.STORY_FINISH_ASK_AT 중 하나, 지금은 비어 있음)
 
 DB에 닿지 못하면 503, 책이나 글이 없거나 내 것이 아니면 404, 요청 내용이 맞지 않으면 400,
 X-User-Token 헤더의 토큰이 맞지 않으면 401, 화면이 아는 글과 DB 의 글이 달라졌으면 409 를 돌려준다 (auth.py).
