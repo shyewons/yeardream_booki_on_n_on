@@ -23,7 +23,7 @@ import diaryBook from './assets/backgrounds/diary-list-book.png'
 import fairyBook from './assets/backgrounds/fairy-list-book.png'
 import sheep from './assets/characters/sheep.png'
 import alpaca from './assets/characters/alpaca.png'
-import gift from './assets/icons/reward-gift.png'
+import giftIcon from './assets/icons/reward-gift.png'
 import './PostListPage.css'
 
 function Arrow({ reverse = false, double = false }) {
@@ -108,6 +108,13 @@ function StoryChapters({ data, onHome, onOpenEntry, onWrite, onAuthError, reload
     const [ask, setAsk] = useState(null)
     const [sending, setSending] = useState(false)
     const [error, setError] = useState('')
+    // 동화 선물 (FR-040 · FR-045): GET /api/rewards/fairy/{책} → 구간마다 locked / claimable / claimed 와 옷.
+    // 받을 수 있는 구간의 선물 상자를 누르면 묻고(gift-ask) 받는다 (POST …/claim). 받은 뒤에는 응답의 fairy_reward 로 바로 바꾼다
+    const rewardLoad = useLoad(`/api/rewards/fairy/${book.id}`, onAuthError)
+    const [rewardFresh, setRewardFresh] = useState(null)
+    const reward = rewardFresh || rewardLoad.data                     // 불러오지 못하면 null (상자는 진행 표시만 한다)
+    const [gift, setGift] = useState(null)                           // 묻는 중인 구간 {order, chapters, clothes} · 받은 뒤 {got}
+    const [gifting, setGifting] = useState(false)
     const last = story.chapters.length ? story.chapters[story.chapters.length - 1] : null
     const steps = data.rules ? data.rules.story_reward_chapters : [3, 6, 10]
     const minSentences = data.rules ? data.rules.story_chapter_min_sentences : 3
@@ -120,6 +127,25 @@ function StoryChapters({ data, onHome, onOpenEntry, onWrite, onAuthError, reload
     function continueStory() {
         if (askResume) setAsk('resume')
         else onWrite(lastNo ? chapterTarget(lastNo) : null)
+    }
+    const stageOf = (step) => reward && reward.stages.find((x) => x.chapters === step)
+    async function claimGift() {
+        if (gifting || !gift || !gift.order) return
+        setGifting(true)
+        setError('')
+        try {
+            const r = await api(`/api/rewards/fairy/${book.id}/claim`, { method: 'POST', body: { order: gift.order } })
+            setRewardFresh(r.fairy_reward)
+            setGift({ got: r.clothes })
+        } catch (err) {
+            if (err.status === 401) {
+                onAuthError()
+                return
+            }
+            setError(err.message)
+            if (err.status === 409) rewardLoad.retry()               // 이미 받았으면 상태를 다시 읽는다
+        }
+        setGifting(false)
     }
     async function finish() {
         if (sending) return
@@ -150,11 +176,26 @@ function StoryChapters({ data, onHome, onOpenEntry, onWrite, onAuthError, reload
         <div className="post-list__toolbar">
             <div className="post-list__rewards" id="reward-progress">
                 <span className="ui-description">이 책의 보상</span>
-                <div className="post-list__reward-track" role="img" aria-label={`${minSentences}문장 이상 쓴 장 ${story.qualified}개. ${nextGift ? `다음 선물까지 ${nextGift - story.qualified}장` : '선물을 모두 모았어요'}`}>
+                <div className="post-list__reward-track" role="group" aria-label={`${minSentences}문장 이상 쓴 장 ${story.qualified}개. ${nextGift ? `다음 선물까지 ${nextGift - story.qualified}장` : '선물을 모두 모았어요'}`}>
                     <span className="post-list__reward-fill" style={{ width: `${Math.min(100, story.qualified / maxReward * 100)}%` }} />
-                    {steps.map((step) => <span className={`post-list__reward-stop${story.rewards_reached.includes(step) ? ' is-reached' : ''}`} key={step} style={{ left: `${step / maxReward * 100}%` }}>
-                        <img src={gift} alt="" /><span>{step}</span>
-                    </span>)}
+                    {steps.map((step, i) => {
+                        // 상자 상태: 받을 수 있음(누르면 받기) · 받음(✓) · 아직(회색). 그 주제에 준비된 옷이 없으면 누를 수 없다
+                        const stage = stageOf(step)
+                        const claimable = !!stage && stage.status === 'claimable' && !!stage.clothes
+                        const claimed = !!stage && stage.status === 'claimed'
+                        const cls = `post-list__reward-stop${story.rewards_reached.includes(step) ? ' is-reached' : ''}${claimable ? ' is-claimable' : ''}${claimed ? ' is-claimed' : ''}`
+                        // 받을 수 있는 상자 중 첫 상자 위에만 말풍선 '눌러서 받아요!' (칸을 밀지 않게 상자 위에 띄운다)
+                        const firstClaimable = claimable && !steps.slice(0, i).some((x) => { const t = stageOf(x); return t && t.status === 'claimable' && t.clothes })
+                        const inner = <>
+                            {firstClaimable && <span className="post-list__gift-pop" id="gift-hint" aria-hidden="true">🎁 눌러서 받아요!</span>}
+                            <img src={giftIcon} alt="" /><span>{claimed ? `${step} ✓` : step}</span>
+                        </>
+                        return claimable
+                            ? <button type="button" className={cls} key={step} style={{ left: `${step / maxReward * 100}%` }} id={`gift-${step}`}
+                                      aria-label={`${step}장 선물 받기`} onClick={() => { setError(''); setGift(stage) }}>{inner}</button>
+                            : <span className={cls} key={step} style={{ left: `${step / maxReward * 100}%` }}
+                                    title={claimed ? `${stage.clothes ? stage.clothes.name : '선물'}을(를) 받았어요` : `${minSentences}문장 이상 쓴 장이 ${step}개가 되면 받아요`}>{inner}</span>
+                    })}
                 </div>
             </div>
             {!story.finished && <div className="post-list__write-actions">
@@ -163,6 +204,19 @@ function StoryChapters({ data, onHome, onOpenEntry, onWrite, onAuthError, reload
             </div>}
         </div>
         {chapters.length ? <EntryRows items={chapters} fairy onOpenEntry={onOpenEntry} /> : <div className="post-list__empty"><p className="ui-body">아직 쓴 이야기가 없어요.</p><p className="ui-description ui-muted">새 장 쓰기를 눌러 이야기를 시작해요.</p></div>}
+        {gift && <Confirmation label="동화 선물" busy={gifting} onCancel={() => { setGift(null); setError('') }}>
+            {gift.got ? <>
+                <p className="ui-body" id="gift-got">🎉 {gift.got.name}을(를) 받았어요! 옷장에서 입혀 볼 수 있어요.</p>
+                <div className="ui-actions"><button className="ui-button ui-button--primary" type="button" onClick={() => setGift(null)}>좋아요</button></div>
+            </> : <>
+                <p className="ui-body" id="gift-ask">{minSentences}문장 이상 쓴 장이 {gift.chapters}개가 됐어요. 선물 「{gift.clothes.name}」을(를) 받을까요?</p>
+                {error && <p className="ui-notice ui-notice--error" role="alert">{error}</p>}
+                <div className="ui-actions">
+                    <button className="ui-button ui-button--primary" type="button" id="gift-yes" disabled={gifting} aria-busy={gifting} onClick={claimGift}>{gifting ? '받는 중...' : '선물 받기'}</button>
+                    <button className="ui-button ui-button--secondary" type="button" disabled={gifting} onClick={() => { setGift(null); setError('') }}>나중에</button>
+                </div>
+            </>}
+        </Confirmation>}
         {ask === 'resume' && <Confirmation label="이어 쓰기" onCancel={() => setAsk(null)}>
             <p className="ui-body">{lastShown}장에 이어서 쓸까요, {lastShown + 1}장을 새로 쓸까요?</p>
             <div className="ui-actions">

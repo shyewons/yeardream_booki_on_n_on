@@ -116,3 +116,29 @@ body:has(.post-list) {
 .post-list__dialog .ui-actions { margin-top: 24px; justify-content: center; }
 
 
+
+/* 동화 선물 받기 (2026-11-20 낙준 추가). 받을 수 있는 상자는 버튼이 되고 살짝 움직인다. 디자인 때 모양만 바꿔 주세요 */
+button.post-list__reward-stop { padding: 0; border: none; background: none; color: inherit; font: inherit; font-size: var(--font-description); font-weight: 600; cursor: pointer; }
+.post-list__reward-stop.is-claimable img { filter: none; animation: post-list-gift 1.2s ease-in-out infinite; }
+.post-list__reward-stop.is-claimable:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 4px; border-radius: 8px; }
+.post-list__reward-stop.is-claimed img { filter: none; opacity: .55; }
+/* 말풍선: 받을 수 있는 첫 상자 위에 띄운다 (다른 칸을 밀지 않는다). 눌러도 받기가 된다 */
+.post-list__gift-pop {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    border-radius: var(--radius-pill);
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    font-size: var(--font-support);
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 4px 10px #172b2f33;
+    cursor: pointer;                  /* 말풍선은 상자 버튼 안에 있어서 눌러도 상자를 누른 것과 같다 */
+    z-index: 3;
+}
+.post-list__gift-pop::after { content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--color-primary); }
+@keyframes post-list-gift { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px) rotate(-6deg); } }
+@media (prefers-reduced-motion: reduce) { .post-list__reward-stop.is-claimable img { animation: none; } }

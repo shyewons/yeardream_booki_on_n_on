@@ -59,7 +59,7 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `POST /api/books/{책}/finish` | 동화 이야기 끝내기 (3문장 이상 쓴 장이 3개 이상. 끝낸 뒤에는 다시쓰기만) |
 | `POST /api/books/{책}/finish-later` | 동화: 끝낼지 물었을 때 '다음에 이어 쓸래요' `{"upto": 3}` (그 구간은 다시 묻지 않음) |
 | `GET /api/topics?exclude=토끼,작은 용&others=2` | 동화 주제 추천 (DB `fairy_topics` 의 켜진 주제) → `{"pick", "others", "ids", "items": [{id, title, prompt, opening}]}` |
-| `GET /question?passed=0&kind=fairy&topic=고양이` | 입력칸 위 질문 |
+| `GET /question?passed=0&kind=fairy&topic=토끼&chapter=2` | 입력칸 위 질문 (동화 2장부터는 첫 문장도 앞 장에 이어서 묻는다) |
 | `GET /topics?exclude=토끼,작은 용` | 동화 주제 추천 (코드 안 목록. 화면은 `/api/topics` 를 쓴다) |
 | `POST /validate` | 유효성 검사 `{"user_input", "validation_attempt", "previous_sentences", "choice_picks", "kind"}` |
 | `POST /correct` | 교정(단계별 NDJSON) `{"original_sentence"}` |

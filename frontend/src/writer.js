@@ -314,7 +314,9 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     async function loadQuestion() {
         try {
             const topic = st.topic ? `&topic=${encodeURIComponent(st.topic)}` : ''
-            const r = await api(`/question?passed=${previousFor().length}&kind=${st.kind}${topic}`)
+            // 동화는 몇 장인지도 보낸다 (2장부터는 첫 문장이어도 '앞 장에 이어서' 묻는다. 서버 writing_api.get_question)
+            const chapter = st.kind === 'fairy' ? `&chapter=${st.displayNo || st.chapterNo || 1}` : ''
+            const r = await api(`/question?passed=${previousFor().length}&kind=${st.kind}${topic}${chapter}`)
             st.question = r.question
             emit()
         } catch {
