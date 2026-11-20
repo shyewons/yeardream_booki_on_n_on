@@ -188,7 +188,8 @@ function StoryChapters({ data, onHome, onOpenEntry, onWrite, onAuthError, reload
                         const firstClaimable = claimable && !steps.slice(0, i).some((x) => { const t = stageOf(x); return t && t.status === 'claimable' && t.clothes })
                         const inner = <>
                             {firstClaimable && <span className="post-list__gift-pop" id="gift-hint" aria-hidden="true">🎁 눌러서 받아요!</span>}
-                            <img src={giftIcon} alt="" /><span>{claimed ? `${step} ✓` : step}</span>
+                            {/* 받은 상자: 상자 그림 귀퉁이에 작은 ✓ (숫자 칸을 넓히지 않아 숫자가 밀리지 않는다) */}
+                            <span className="post-list__gift-box"><img src={giftIcon} alt="" />{claimed && <span className="post-list__gift-check" aria-label="받음">✓</span>}</span><span>{step}</span>
                         </>
                         return claimable
                             ? <button type="button" className={cls} key={step} style={{ left: `${step / maxReward * 100}%` }} id={`gift-${step}`}

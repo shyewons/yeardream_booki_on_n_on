@@ -122,6 +122,23 @@ button.post-list__reward-stop { padding: 0; border: none; background: none; colo
 .post-list__reward-stop.is-claimable img { filter: none; animation: post-list-gift 1.2s ease-in-out infinite; }
 .post-list__reward-stop.is-claimable:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 4px; border-radius: 8px; }
 .post-list__reward-stop.is-claimed img { filter: none; opacity: .55; }
+/* 받은 상자의 ✓: 상자 그림 오른쪽 위 귀퉁이에 작게 (자리를 차지하지 않아 숫자 · 마지막 상자가 밀리지 않는다) */
+.post-list__gift-box { position: relative; display: block; line-height: 0; }
+.post-list__gift-check {
+    position: absolute;
+    top: -6px;
+    right: -4px;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+}
 /* 말풍선: 받을 수 있는 첫 상자 위에 띄운다 (다른 칸을 밀지 않는다). 눌러도 받기가 된다 */
 .post-list__gift-pop {
     position: absolute;
