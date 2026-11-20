@@ -174,3 +174,7 @@ body:has(.diary-write) { margin: 0; background: var(--color-outside); }
     .diary-write__bubble { display: none; }
 }
 
+
+/* 안내 + 문장 (#shown 이 있을 때: 표현을 고른 뒤 '잘했어요!' · 검사에서 되묻는 문장): 표현 고르기의 '내가 쓴 문장'처럼 안내는 작게, 쓴 문장은 크게 (2026-11-20 낙준 추가) */
+.diary-write__notice:has(#shown) #msg { font-size: var(--font-description); }
+.diary-write__notice #shown { margin: 0; font-size: var(--font-correction); line-height: 1.5; overflow-wrap: anywhere; }

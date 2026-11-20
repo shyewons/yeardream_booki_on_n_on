@@ -645,6 +645,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         }
         exprResolve()
         st.notice = picked ? '잘했어요! 내 뜻에 맞는 표현을 골랐어요.' : ''
+        st.shown = picked || ''      // 고른 문장을 안내 아래(#shown)에 같이 보여 준다 (디자인 화면은 안내가 뜨면 교정 결과 상자를 빼서, 없으면 문구만 남는다. 2026-11-20)
         emit()
     }
 
