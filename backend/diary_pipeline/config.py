@@ -22,7 +22,8 @@ RULE_PART, RULE_ARTICLE = "한글 맞춤법", "제2항"         # 띄어쓰기 �
 SEM_PCT, SEM_MIN, SEM_MAX = 10, 200, 800               # 하위 몇 %, 청크 최소·최대 글자 수
 
 # ⑤ 설명문 LLM
-EXPLAIN_LLM_ID = "kakaocorp/kanana-1.5-2.1b-instruct-2505"
+# EXPLAIN_LLM_ID = "kakaocorp/kanana-1.5-2.1b-instruct-2505"
+EXPLAIN_LLM_ID = "kakaocorp/kanana-2-3b-instruct"
 
 # ⑥ 표현 생성 (동화 모드에서 맞춤법이 맞았을 때, 칭찬 대신). 설명문과 같은 모델을 써서 추가 메모리가 들지 않음
 STORY_LLM_ID = EXPLAIN_LLM_ID
