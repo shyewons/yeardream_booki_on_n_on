@@ -314,7 +314,9 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     async function loadQuestion() {
         try {
             const topic = st.topic ? `&topic=${encodeURIComponent(st.topic)}` : ''
-            const r = await api(`/question?passed=${previousFor().length}&kind=${st.kind}${topic}`)
+            // 동화는 몇 장인지도 보낸다 (2장부터는 첫 문장이어도 '앞 장에 이어서' 묻는다. 서버 writing_api.get_question)
+            const chapter = st.kind === 'fairy' ? `&chapter=${st.displayNo || st.chapterNo || 1}` : ''
+            const r = await api(`/question?passed=${previousFor().length}&kind=${st.kind}${topic}${chapter}`)
             st.question = r.question
             emit()
         } catch {
@@ -643,6 +645,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         }
         exprResolve()
         st.notice = picked ? '잘했어요! 내 뜻에 맞는 표현을 골랐어요.' : ''
+        st.shown = picked || ''      // 고른 문장을 안내 아래(#shown)에 같이 보여 준다 (디자인 화면은 안내가 뜨면 교정 결과 상자를 빼서, 없으면 문구만 남는다. 2026-11-20)
         emit()
     }
 

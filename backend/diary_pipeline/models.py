@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """여러 노드가 함께 쓰는 모델 불러오기 (GPU/CPU 선택, 임베딩, 대화형 LLM). 모델은 이름별로 한 번만 불러온다.
 LLM을 API형 등 다른 방식으로 바꾸면 chat() 만, 임베딩 방식을 바꾸면 embed() 만 고친다."""
+import os
+
 _cache = {}
 
 
@@ -8,7 +10,17 @@ def get_torch():
     if "torch" not in _cache:
         import torch
         _cache["torch"] = torch
-        _cache["device"] = "cuda" if torch.cuda.is_available() else "cpu"
+        # 장치: cuda(엔비디아) → mps(맥 GPU) → cpu 순서로 고른다.
+        # .env 의 MODEL_DEVICE=cpu 로 강제할 수 있다 (mps 에서 문제가 나면 바로 되돌리는 용도)
+        forced = os.environ.get("MODEL_DEVICE")
+        if forced:
+            _cache["device"] = forced
+        elif torch.cuda.is_available():
+            _cache["device"] = "cuda"
+        elif torch.backends.mps.is_available():
+            _cache["device"] = "mps"
+        else:
+            _cache["device"] = "cpu"
     return _cache["torch"]
 
 
@@ -41,10 +53,16 @@ def load_llm(model_id: str):
         from transformers import AutoTokenizer, AutoModelForCausalLM
         if get_device() == "cuda":
             dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        elif get_device() == "mps":
+            dtype = torch.float16                      # 맥 GPU: float16 이 빠르고 메모리도 float32 의 절반 (3B 기준 약 12GB → 6GB)
         else:
             dtype = torch.float32                      # CPU 는 float16 계산이 매우 느리거나 오류가 난다
         tok = AutoTokenizer.from_pretrained(model_id)
-        model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype, device_map="auto").eval()
+        # mps 는 device_map="auto" 가 모델 일부를 CPU 에 남길 때가 있어서 직접 올린다
+        if get_device() == "mps":
+            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype).to("mps").eval()
+        else:
+            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype, device_map="auto").eval()
         _cache[key] = (tok, model)
     return _cache[key]
 

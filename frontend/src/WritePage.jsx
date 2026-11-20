@@ -9,7 +9,8 @@
 //   onBack(쪽)   글 목록으로 (동화는 장 목록으로. 쪽 = 지금 장이 있는 장 목록 쪽, 일기는 null = 보던 쪽)
 //   note   앞 화면에서 넘겨준 안내 한 줄 (날짜 바꾸기 전에 저장했으면 '○○ 일기를 저장했어요.'). 없으면 null
 //   onSaved(글 번호)   '이야기 저장하기' · '이야기 끝내기'가 끝남 → 글 조회 화면으로
-//   onDateChange(날짜 · 장, 안내)   '날짜 바꾸기'로 다른 날짜의 일기를, 동화 '다음 장'으로 다음 장('ch4')을 연다 (안내는 다음 화면의 note)
+//   onDateChange(날짜 · 장, 안내, 쓴 글 보기)   '날짜 바꾸기'로 다른 날짜의 일기를, 동화 '다음 장'으로 다음 장('ch4')을 연다 (안내는 다음 화면의 note)
+//     쓴 글 보기: 동화 '이전 장 · 다음 장'을 '내가 쓴 글' 쪽에서 눌렀으면 true → 넘어간 장도 '내가 쓴 글'로 연다 (startHistory 로 돌아온다)
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
 // 동화는 마지막 장(100장)을 채운 뒤 '← 목록으로'를 누르면, 나가기 전에 화면 안에서 끝낼지 묻는다 (FinishOffer).
 // 일기는 하루치(3문장)를 채웠는데 저장하지 않고 '← 목록으로' · '날짜 바꾸기'를 하면 저장할지 묻는다 (SaveOffer). 하루치를 채우면 작은 안내(#day-done)를 띄운다.
@@ -289,7 +290,15 @@ function TopicBox({ box, writer, error }) {
 
 // 동화: 표현 추천 (바꿔 쓴 문장 + 원래 문장 그대로)
 function ExprBox({ expr, writer }) {
-    if (expr.status === 'loading') return <div id="expr-box" role="status"><p>다른 표현을 찾고 있어요… (처음에는 조금 오래 걸릴 수 있어요)</p></div>
+    // 찾는 중에도 '내가 쓴 문장'은 다 찾은 뒤와 같은 자리에 먼저 보여 준다 (글이 사라졌다가 다시 나타나지 않게, 2026-11-20). 보기 자리에만 안내를 띄운다
+    if (expr.status === 'loading') return (
+        <div id="expr-box">
+            <div className="fairy-write__expression-original"><h2>내가 쓴 문장</h2><p>{expr.base}</p></div>
+            <div className="fairy-write__expression-options">
+                <p className="ask" role="status">다른 표현을 찾고 있어요… (처음에는 조금 오래 걸릴 수 있어요)</p>
+            </div>
+        </div>
+    )
     if (expr.status === 'error') {
         return (
             <div id="expr-box">
@@ -330,7 +339,7 @@ function ExprBox({ expr, writer }) {
     )
 }
 
-export default function WritePage({ bookId, bookKind, date, note = null, onBack, onSaved, onDateChange, onAuthError }) {
+export default function WritePage({ bookId, bookKind, date, note = null, startHistory = false, startSpread = false, onBack, onSaved, onDateChange, onAuthError }) {
     // 이 화면의 두뇌는 한 번만 만든다. (책이나 날짜가 바뀌면 App.jsx 가 key 를 바꿔 화면을 새로 만든다)
     const [writer] = useState(() =>
         createWriter({ book: bookId, date, practice: false, onSaved, onAuthError }),
@@ -435,15 +444,19 @@ export default function WritePage({ bookId, bookKind, date, note = null, onBack,
 
     // 동화 '다음 장': 다음 장이 이미 있으면 바로 넘어가고, 새 장이면 먼저 묻는다
     const nav = writer.chapterNav()
-    function goNext() {
+    // 장 이동 버튼은 '내가 쓴 글'(책 왼쪽 쪽)과 '문장 쓰기'(오른쪽 쪽)에 같이 있다. 누른 쪽을 기억해 넘어간 장도 같은 쪽으로 연다
+    const fromHistory = (e) => !!e?.currentTarget?.closest('.diary-write__page--left')
+    function goNext(e) {
         const next = writer.chapterNav().next
         if (!next) return
-        if (next.isNew) writer.askNext()
-        else leave(() => onDateChange(next.target))
+        const history = fromHistory(e)
+        if (next.isNew) writer.askNext()        // 새 장은 빈 장이라 '내가 쓴 글'이 없다 → 문장 쓰기로 연다
+        else leave(() => onDateChange(next.target, null, history))
     }
-    function goPrev() {
+    function goPrev(e) {
         const prev = writer.chapterNav().prev
-        if (prev) leave(() => onDateChange(prev.target))
+        const history = fromHistory(e)
+        if (prev) leave(() => onDateChange(prev.target, null, history))
     }
 
     function changeDate(e) {
@@ -457,7 +470,8 @@ export default function WritePage({ bookId, bookKind, date, note = null, onBack,
 
     // 일기와 동화가 책 레이아웃을 공유하며, 검사·저장·장 이동은 기존 writer를 사용한다.
     const fairy = state.kind === 'fairy' || (!state.entry && bookKind === 'fairy') || /^(ch\d+|new)$/.test(date || '')
-    if (state.entry || fairy || /^\d{4}-/.test(date || '')) {
+    // 글을 불러오기 전에도 새 화면으로 그린다: 일기 책이면(bookKind) 날짜 없이 열어도(새 책 → 바로 쓰기 · 오늘 일기) 예전 화면이 잠깐 비치지 않게
+    if (state.entry || fairy || bookKind === 'diary' || /^\d{4}-/.test(date || '')) {
         const storyContext = fairy && <>
             {state.finished && <p id="finished-note" role="status" className="ui-description">끝낸 이야기예요. 다시쓰기로 문장을 고칠 수 있어요.</p>}
             {!state.finished && state.rules && (state.displayNo || state.chapterNo) >= state.rules.story_max_chapters && <p id="last-chapter" role="status" className="ui-description">이번이 마지막 장({state.rules.story_max_chapters}장)이에요.</p>}
@@ -502,6 +516,7 @@ export default function WritePage({ bookId, bookKind, date, note = null, onBack,
             renderWork={(work) => <WorkBlock work={work} />}
             SentenceComponent={SentenceCard}
             fairy={fairy} storyContext={fairy ? storyContext : diaryContext} chapterActions={chapterActions} storyDialog={storyDialog}
+            startHistory={startHistory} startSpread={startSpread}
             expression={fairy && state.expr ? <ExprBox expr={state.expr} writer={writer} /> : null}
         />
     }

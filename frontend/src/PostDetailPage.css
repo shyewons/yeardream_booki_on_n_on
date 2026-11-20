@@ -1,0 +1,47 @@
+/* 11 글 보기 (임시 디자인, 2026-11-20 낙준).
+   책 · 쪽 · 문장 목록 모양은 DiaryWriteView.css 의 '내가 쓴 글'(.diary-write--history) 을 그대로 쓰고, 이 화면만의 모양만 여기 둔다.
+   디자인 시안 11번이 나오면 이 파일을 기준으로 다시 맞춘다. */
+
+.post-detail__topbar { position: relative; display: flex; align-items: center; gap: 8px; }
+.post-detail__farm { margin-left: auto; }
+
+.post-detail__title {
+    margin: 0;
+    font-size: var(--font-title);
+    font-weight: var(--weight-semibold);
+    overflow-wrap: anywhere;
+    text-align: right;
+}
+.post-detail__status {
+    display: inline-block;
+    margin-left: 10px;
+    padding: 2px 14px;
+    border-radius: var(--radius-pill);
+    background: #efe7da;
+    color: var(--color-muted);
+    font-size: var(--font-support);
+    font-weight: var(--weight-semibold);
+    vertical-align: middle;
+}
+.post-detail__status.is-done { background: #e4ed9b; color: var(--color-text); }
+
+.post-detail__head { display: grid; gap: 2px; margin: 8px 0 12px; }
+.post-detail__head .diary-write__history-title { white-space: nowrap; }
+.post-detail__head .sub { margin: 0; font-size: var(--font-support); }
+.post-detail__notice { margin: 0 0 8px; padding: 8px 16px; }
+.post-detail__draft { margin: 0 0 8px; color: var(--color-muted); }
+.post-detail__prev {
+    margin: 0 0 8px;
+    padding: 8px 14px;
+    border-left: 4px solid #d4b78e;
+    border-radius: 8px;
+    background: #fff9ed;
+}
+
+/* 문장 목록: 글쓰기 화면의 '내가 쓴 글'보다 조금 길게 (입력칸이 없어서) */
+.post-detail__scroll { flex: 1; height: auto; max-height: 440px; }
+.post-detail__scroll .text { margin: 4px 0 0; line-height: 1.5; }
+.post-detail__empty, .post-detail__state { display: grid; place-items: center; min-height: 300px; text-align: center; }
+
+.post-detail__near { justify-content: center; gap: 12px; margin-top: 16px; }
+.post-detail__near .ui-button { min-width: 150px; }

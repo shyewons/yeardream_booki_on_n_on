@@ -21,8 +21,15 @@ RULE_PART, RULE_ARTICLE = "한글 맞춤법", "제2항"         # 띄어쓰기 �
 # 구조+semantic 청킹: 조항 경계로 나눈 뒤, 조항 안에서 이웃 문장 유사도가 하위 SEM_PCT%(구간마다 따로 계산)인 곳에서 자름
 SEM_PCT, SEM_MIN, SEM_MAX = 10, 200, 800               # 하위 몇 %, 청크 최소·최대 글자 수
 
-# ⑤ 설명문 LLM
-EXPLAIN_LLM_ID = "kakaocorp/kanana-1.5-2.1b-instruct-2505"
+# ⑤ 설명문 LLM: .env 의 EXPLAIN_LLM 으로 고른다 (없으면 large)
+#   small = kanana 1.5 2.1B (가볍고 CPU 에서도 견딜 만함) / large = kanana 2 3B (설명 품질 ↑, GPU · 맥 mps 권장)
+#   목록에 없는 값을 적으면 그 값을 모델 이름으로 그대로 쓴다 (예: EXPLAIN_LLM=kakaocorp/kanana-1.5-8b-instruct-2505)
+EXPLAIN_LLMS = {
+    "small": "kakaocorp/kanana-1.5-2.1b-instruct-2505",
+    "large": "kakaocorp/kanana-2-3b-instruct",
+}
+_explain_pick = os.environ.get("EXPLAIN_LLM", "small").strip()
+EXPLAIN_LLM_ID = EXPLAIN_LLMS.get(_explain_pick, _explain_pick)
 
 # ⑥ 표현 생성 (동화 모드에서 맞춤법이 맞았을 때, 칭찬 대신). 설명문과 같은 모델을 써서 추가 메모리가 들지 않음
 STORY_LLM_ID = EXPLAIN_LLM_ID
