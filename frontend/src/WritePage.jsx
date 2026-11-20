@@ -289,7 +289,15 @@ function TopicBox({ box, writer, error }) {
 
 // 동화: 표현 추천 (바꿔 쓴 문장 + 원래 문장 그대로)
 function ExprBox({ expr, writer }) {
-    if (expr.status === 'loading') return <div id="expr-box" role="status"><p>다른 표현을 찾고 있어요… (처음에는 조금 오래 걸릴 수 있어요)</p></div>
+    // 찾는 중에도 '내가 쓴 문장'은 다 찾은 뒤와 같은 자리에 먼저 보여 준다 (글이 사라졌다가 다시 나타나지 않게, 2026-11-20). 보기 자리에만 안내를 띄운다
+    if (expr.status === 'loading') return (
+        <div id="expr-box">
+            <div className="fairy-write__expression-original"><h2>내가 쓴 문장</h2><p>{expr.base}</p></div>
+            <div className="fairy-write__expression-options">
+                <p className="ask" role="status">다른 표현을 찾고 있어요… (처음에는 조금 오래 걸릴 수 있어요)</p>
+            </div>
+        </div>
+    )
     if (expr.status === 'error') {
         return (
             <div id="expr-box">
