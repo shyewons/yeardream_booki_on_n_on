@@ -65,7 +65,14 @@ export default function DashboardPage({ onBack, onAuthError }) {
   }
   if (view === 'wardrobe') {
     // 옷장에서 옷을 바꿨을 수 있으니 돌아올 때 대시보드를 다시 불러온다
-    return <WardrobePage onBack={() => { setView('main'); setReloadKey((k) => k + 1) }} onAuthError={onAuthError} />
+    // 다시 불러오는 동안 예전 캐릭터가 잠깐 보이지 않게 data 를 비우고, 지난 '선물을 받았어요' 문구도 지운다
+    function backFromWardrobe() {
+      setData(null)
+      setClaimMsg('')
+      setView('main')
+      setReloadKey((k) => k + 1)
+    }
+    return <WardrobePage onBack={backFromWardrobe} onAuthError={onAuthError} />
   }
 
   // 조회 실패는 '기록 없음'과 구분해서 보여 준다 (FR-033)
