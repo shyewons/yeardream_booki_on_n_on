@@ -37,6 +37,8 @@ export default function App() {
     const [writeDate, setWriteDate] = useState(null);
     // writeNote: 글쓰기 화면 맨 위에 한 번 띄울 안내 (날짜 바꾸기 전에 저장했으면 '○○ 일기를 저장했어요.'). 다른 길로 들어오면 비운다
     const [writeNote, setWriteNote] = useState(null);
+    // writeHistory: 동화 '이전 장 · 다음 장'을 '내가 쓴 글' 쪽에서 눌렀으면 넘어간 장도 '내가 쓴 글'로 연다 (문장 쓰기에서 눌렀으면 문장 쓰기로). 다른 길로 들어오면 끈다
+    const [writeHistory, setWriteHistory] = useState(false);
     const [justSaved, setJustSaved] = useState(false);
     
     // 확인 완료 시 목적지만 기억하고, 시작하기를 눌렀을 때 이동한다.
@@ -62,6 +64,7 @@ export default function App() {
     const handleWrite = useCallback((date) => {
         setWriteDate(date);
         setWriteNote(null);
+        setWriteHistory(false);
         setPage("write");
     }, []);
 
@@ -184,6 +187,7 @@ export default function App() {
                         setListPage(1);
                         setWriteDate(null);
                         setWriteNote(null);
+                        setWriteHistory(false);
                         setPage("write");
                     }}
                     
@@ -278,11 +282,14 @@ export default function App() {
                     }}
 
                     // '날짜 바꾸기': 고른 날짜의 일기를 연다 (key 가 바뀌어 화면이 새로 만들어진다)
-                    onDateChange={(date, note) => {
+                    // history: 동화 장 이동을 '내가 쓴 글' 쪽에서 했는지 (넘어간 장도 같은 쪽으로 연다)
+                    onDateChange={(date, note, history = false) => {
                         setWriteDate(date);
                         setWriteNote(note || null);
+                        setWriteHistory(history);
                     }}
                     note={writeNote}
+                    startHistory={writeHistory}
 
                     onAuthError={handleAuthError}
                 />

@@ -9,7 +9,8 @@
 //   onBack(쪽)   글 목록으로 (동화는 장 목록으로. 쪽 = 지금 장이 있는 장 목록 쪽, 일기는 null = 보던 쪽)
 //   note   앞 화면에서 넘겨준 안내 한 줄 (날짜 바꾸기 전에 저장했으면 '○○ 일기를 저장했어요.'). 없으면 null
 //   onSaved(글 번호)   '이야기 저장하기' · '이야기 끝내기'가 끝남 → 글 조회 화면으로
-//   onDateChange(날짜 · 장, 안내)   '날짜 바꾸기'로 다른 날짜의 일기를, 동화 '다음 장'으로 다음 장('ch4')을 연다 (안내는 다음 화면의 note)
+//   onDateChange(날짜 · 장, 안내, 쓴 글 보기)   '날짜 바꾸기'로 다른 날짜의 일기를, 동화 '다음 장'으로 다음 장('ch4')을 연다 (안내는 다음 화면의 note)
+//     쓴 글 보기: 동화 '이전 장 · 다음 장'을 '내가 쓴 글' 쪽에서 눌렀으면 true → 넘어간 장도 '내가 쓴 글'로 연다 (startHistory 로 돌아온다)
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
 // 동화는 마지막 장(100장)을 채운 뒤 '← 목록으로'를 누르면, 나가기 전에 화면 안에서 끝낼지 묻는다 (FinishOffer).
 // 일기는 하루치(3문장)를 채웠는데 저장하지 않고 '← 목록으로' · '날짜 바꾸기'를 하면 저장할지 묻는다 (SaveOffer). 하루치를 채우면 작은 안내(#day-done)를 띄운다.
@@ -338,7 +339,7 @@ function ExprBox({ expr, writer }) {
     )
 }
 
-export default function WritePage({ bookId, bookKind, date, note = null, onBack, onSaved, onDateChange, onAuthError }) {
+export default function WritePage({ bookId, bookKind, date, note = null, startHistory = false, onBack, onSaved, onDateChange, onAuthError }) {
     // 이 화면의 두뇌는 한 번만 만든다. (책이나 날짜가 바뀌면 App.jsx 가 key 를 바꿔 화면을 새로 만든다)
     const [writer] = useState(() =>
         createWriter({ book: bookId, date, practice: false, onSaved, onAuthError }),
@@ -443,15 +444,19 @@ export default function WritePage({ bookId, bookKind, date, note = null, onBack,
 
     // 동화 '다음 장': 다음 장이 이미 있으면 바로 넘어가고, 새 장이면 먼저 묻는다
     const nav = writer.chapterNav()
-    function goNext() {
+    // 장 이동 버튼은 '내가 쓴 글'(책 왼쪽 쪽)과 '문장 쓰기'(오른쪽 쪽)에 같이 있다. 누른 쪽을 기억해 넘어간 장도 같은 쪽으로 연다
+    const fromHistory = (e) => !!e?.currentTarget?.closest('.diary-write__page--left')
+    function goNext(e) {
         const next = writer.chapterNav().next
         if (!next) return
-        if (next.isNew) writer.askNext()
-        else leave(() => onDateChange(next.target))
+        const history = fromHistory(e)
+        if (next.isNew) writer.askNext()        // 새 장은 빈 장이라 '내가 쓴 글'이 없다 → 문장 쓰기로 연다
+        else leave(() => onDateChange(next.target, null, history))
     }
-    function goPrev() {
+    function goPrev(e) {
         const prev = writer.chapterNav().prev
-        if (prev) leave(() => onDateChange(prev.target))
+        const history = fromHistory(e)
+        if (prev) leave(() => onDateChange(prev.target, null, history))
     }
 
     function changeDate(e) {
@@ -511,6 +516,7 @@ export default function WritePage({ bookId, bookKind, date, note = null, onBack,
             renderWork={(work) => <WorkBlock work={work} />}
             SentenceComponent={SentenceCard}
             fairy={fairy} storyContext={fairy ? storyContext : diaryContext} chapterActions={chapterActions} storyDialog={storyDialog}
+            startHistory={startHistory}
             expression={fairy && state.expr ? <ExprBox expr={state.expr} writer={writer} /> : null}
         />
     }

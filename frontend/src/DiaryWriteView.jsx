@@ -43,18 +43,20 @@ function CorrectionPanel({ sentence }) {
     </section>
 }
 
-export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, onBack, maxChars, renderWork, SentenceComponent, fairy = false, storyContext, expression, chapterActions, storyDialog }) {
-    const [history, setHistory] = useState(false)
+// startHistory: 처음부터 '내가 쓴 글' 쪽을 펼쳐 둔다 (동화 장 이동을 '내가 쓴 글'에서 했을 때. 쓴 문장이 없으면 그대로 문장 쓰기)
+export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, onBack, maxChars, renderWork, SentenceComponent, fairy = false, storyContext, expression, chapterActions, storyDialog, startHistory = false }) {
+    const [history, setHistory] = useState(startHistory)
     const historyButton = useRef(null)
     const dateInput = useRef(null)
     const written = state.sentences.filter((sentence) => sentence.original)
     const hasPages = written.length > 0
     const reviewing = state.view === 'all'
-    const showingHistory = hasPages && (history || reviewing)
+    const ready = !state.loading && !state.loadError && !!state.entry
+    // 불러오는 중에도 '내가 쓴 글'에서 넘어왔으면(history) 왼쪽 쪽을 펼친 채로 불러온다 (오른쪽으로 갔다가 돌아오지 않게). 다 불러왔는데 쓴 글이 없으면 문장 쓰기
+    const showingHistory = (hasPages || !ready) && (history || reviewing)
     const editing = state.sentences.find((sentence) => sentence.id === state.editingId)
     const pending = state.sentences.find((sentence) => sentence.work)
     const selected = editing || written.find((sentence) => sentence.id === state.scrollTo?.id) || written.at(-1)
-    const ready = !state.loading && !state.loadError && !!state.entry
     const locked = state.busy || !ready
     const first = !hasPages && !pending && !state.notice && !state.busy
     const showResult = !pending && !state.notice && selected && state.insertAt === null
@@ -63,7 +65,7 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
 
     useEffect(() => {
         if (showingHistory) historyButton.current?.focus({ preventScroll: true })
-    }, [showingHistory])
+    }, [showingHistory, hasPages])
 
     // 키보드가 화면 높이를 줄여도 현재 입력칸과 조작 영역으로 스크롤할 수 있다.
     useEffect(() => {
@@ -111,6 +113,11 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
         </div>}
     </>
 
+    // 불러오는 중 · 불러오기 실패: 펼친 쪽(왼쪽 '내가 쓴 글' 또는 오른쪽 문장 쓰기)에 같은 안내를 보여 준다
+    const loadState = <div className="diary-write__load-state">
+        {state.loadError ? <div className="ui-notice ui-notice--error" role="alert"><p>쓰던 글을 불러오지 못했어요.</p><p>{state.loadError}</p><button type="button" className="ui-button ui-button--primary" onClick={writer.boot}>다시 불러오기</button></div> : <p role="status">쓰던 글을 불러오고 있어요…</p>}
+    </div>
+
     const notices = <div className="diary-write__save-status">
         {state.save.text && <div id="savebar" className={state.save.retry ? 'ui-notice ui-notice--error' : ''} role="status">
             <span>{state.save.text}</span>
@@ -135,7 +142,7 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
                 <img className="diary-write__paper" src={fairy ? fairySpread : hasPages ? spread : singlePage} alt="" />
                 {(hasPages || fairy) && <section className="diary-write__page diary-write__page--left" inert={!showingHistory} aria-hidden={!showingHistory}>
                     {pageHeader(true)}
-                    {reviewing ? <>
+                    {!ready ? loadState : reviewing ? <>
                         <div className="diary-write__history-scroll" id="all"><p id="all-text">{written.map((sentence) => sentence.revised || sentence.original).join(' ')}</p></div>
                         {state.storyError && <p className="ui-notice ui-notice--error" id="save-err" role="alert">{state.storyError}</p>}
                         <div className="ui-actions diary-write__review-actions">
@@ -145,14 +152,12 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
                     </> : <div className="diary-write__history-scroll">
                         <ul id="list" aria-label="지금까지 쓴 문장">{state.sentences.map((sentence, index) => <SentenceComponent key={sentence.id} sentence={sentence} index={index} total={state.sentences.length} state={state} writer={writer} diary onEdit={edit} />)}</ul>
                     </div>}
-                    {showingHistory && notices}
-                    {showingHistory && chapterActions}
+                    {ready && showingHistory && notices}
+                    {ready && showingHistory && chapterActions}
                 </section>}
                 <section className="diary-write__page diary-write__page--right" inert={showingHistory} aria-hidden={showingHistory}>
                     {pageHeader()}
-                    {!ready ? <div className="diary-write__load-state">
-                        {state.loadError ? <div className="ui-notice ui-notice--error" role="alert"><p>쓰던 글을 불러오지 못했어요.</p><p>{state.loadError}</p><button type="button" className="ui-button ui-button--primary" onClick={writer.boot}>다시 불러오기</button></div> : <p role="status">쓰던 글을 불러오고 있어요…</p>}
-                    </div> : <>
+                    {!ready ? loadState : <>
                         {storyContext}
                         {expression || (pending ? <div className="diary-write__result diary-write__working" role="status"><h2>문장을 확인하고 있어요</h2><div className="diary-write__result-scroll">{renderWork(pending.work)}</div></div>
                             : state.busy ? <p className="ui-notice" role="status">문장을 확인하고 있어요…</p>
