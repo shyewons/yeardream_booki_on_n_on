@@ -39,6 +39,8 @@ export default function App() {
     const [writeNote, setWriteNote] = useState(null);
     // writeHistory: 동화 '이전 장 · 다음 장'을 '내가 쓴 글' 쪽에서 눌렀으면 넘어간 장도 '내가 쓴 글'로 연다 (문장 쓰기에서 눌렀으면 문장 쓰기로). 다른 길로 들어오면 끈다
     const [writeHistory, setWriteHistory] = useState(false);
+    // writeSpread: 쓴 문장이 있는 글을 연다고 알고 들어왔는지 (글 보기의 고쳐쓰기 · 이어서 쓰기). 참이면 불러오는 동안에도 일기를 펼친 책으로 그린다
+    const [writeSpread, setWriteSpread] = useState(false);
     const [justSaved, setJustSaved] = useState(false);
     
     // 확인 완료 시 목적지만 기억하고, 시작하기를 눌렀을 때 이동한다.
@@ -61,10 +63,12 @@ export default function App() {
     // 글쓰기 버튼을 눌렀을 때 실행할 공통 함수 (글 리스트 · 글 조회 화면에서 같이 쓴다)
     // date: 일기 날짜("2026-11-16"), 동화는 장("ch3" · "new" · null)
     // 어느 책인지는 이미 기억해 둔 bookId 를 쓴다.
-    const handleWrite = useCallback((date) => {
+    // withPages: 쓴 문장이 있는 글인지 (모르면 false = 지금처럼 불러온 뒤 정한다)
+    const handleWrite = useCallback((date, withPages = false) => {
         setWriteDate(date);
         setWriteNote(null);
         setWriteHistory(false);
+        setWriteSpread(withPages === true);
         setPage("write");
     }, []);
 
@@ -188,6 +192,7 @@ export default function App() {
                         setWriteDate(null);
                         setWriteNote(null);
                         setWriteHistory(false);
+                        setWriteSpread(false);
                         setPage("write");
                     }}
                     
@@ -287,9 +292,11 @@ export default function App() {
                         setWriteDate(date);
                         setWriteNote(note || null);
                         setWriteHistory(history);
+                        setWriteSpread(false);
                     }}
                     note={writeNote}
                     startHistory={writeHistory}
+                    startSpread={writeSpread}
 
                     onAuthError={handleAuthError}
                 />

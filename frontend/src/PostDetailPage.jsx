@@ -14,7 +14,8 @@
 //
 // 화면을 바꾸는 일은 App.jsx 가 한다. 이 화면은 아래 함수(props)를 부르기만 한다.
 //   onOpenEntry(글 번호)   이전/다음 이야기로
-//   onWrite(날짜 · 장)   글쓰기 화면으로 (고쳐쓰기 · 이어서 쓰기. 동화는 chapterTarget(장 번호))
+//   onWrite(날짜 · 장, 쓴 문장 있음)   글쓰기 화면으로 (고쳐쓰기 · 이어서 쓰기. 동화는 chapterTarget(장 번호)).
+//     쓴 문장이 있으면 글쓰기 화면이 불러오는 동안에도 펼친 책으로 그린다 (다 불러온 뒤 한 쪽 → 펼친 책으로 바뀌며 넘어가지 않게)
 //   onBack(쪽)   글 목록으로 (동화는 이 장이 있는 장 목록 쪽, 일기는 null = 보던 쪽)        onHome()   목장으로
 //   onAuthError()   토큰이 틀림 → 별명 화면으로
 
@@ -94,7 +95,7 @@ export default function PostDetailPage({ entryId, saved = false, onOpenEntry, on
     )
     const actions = <div className="ui-actions near post-detail__near">
         {near(isFairy ? '← 이전 장' : '← 이전 이야기', nav && nav.prev)}
-        <button className="ui-button ui-button--primary" type="button" onClick={() => onWrite(writeDate)}>
+        <button className="ui-button ui-button--primary" type="button" onClick={() => onWrite(writeDate, sentences.length > 0)}>
             {done ? '고쳐쓰기' : '이어서 쓰기'}
         </button>
         {near(isFairy ? '다음 장 →' : '다음 이야기 →', nav && nav.next)}

@@ -339,7 +339,7 @@ function ExprBox({ expr, writer }) {
     )
 }
 
-export default function WritePage({ bookId, bookKind, date, note = null, startHistory = false, onBack, onSaved, onDateChange, onAuthError }) {
+export default function WritePage({ bookId, bookKind, date, note = null, startHistory = false, startSpread = false, onBack, onSaved, onDateChange, onAuthError }) {
     // 이 화면의 두뇌는 한 번만 만든다. (책이나 날짜가 바뀌면 App.jsx 가 key 를 바꿔 화면을 새로 만든다)
     const [writer] = useState(() =>
         createWriter({ book: bookId, date, practice: false, onSaved, onAuthError }),
@@ -516,7 +516,7 @@ export default function WritePage({ bookId, bookKind, date, note = null, startHi
             renderWork={(work) => <WorkBlock work={work} />}
             SentenceComponent={SentenceCard}
             fairy={fairy} storyContext={fairy ? storyContext : diaryContext} chapterActions={chapterActions} storyDialog={storyDialog}
-            startHistory={startHistory}
+            startHistory={startHistory} startSpread={startSpread}
             expression={fairy && state.expr ? <ExprBox expr={state.expr} writer={writer} /> : null}
         />
     }

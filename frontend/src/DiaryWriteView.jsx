@@ -43,8 +43,9 @@ function CorrectionPanel({ sentence }) {
     </section>
 }
 
+// startSpread: 쓴 문장이 있는 일기를 연다고 알고 왔으면 불러오는 동안에도 펼친 책으로 그린다 (다 불러온 뒤 한 쪽 → 펼친 책으로 바뀌며 넘어가지 않게)
 // startHistory: 처음부터 '내가 쓴 글' 쪽을 펼쳐 둔다 (동화 장 이동을 '내가 쓴 글'에서 했을 때. 쓴 문장이 없으면 그대로 문장 쓰기)
-export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, onBack, maxChars, renderWork, SentenceComponent, fairy = false, storyContext, expression, chapterActions, storyDialog, startHistory = false }) {
+export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, onBack, maxChars, renderWork, SentenceComponent, fairy = false, storyContext, expression, chapterActions, storyDialog, startHistory = false, startSpread = false }) {
     const [history, setHistory] = useState(startHistory)
     const historyButton = useRef(null)
     const dateInput = useRef(null)
@@ -59,6 +60,7 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
     const selected = editing || written.find((sentence) => sentence.id === state.scrollTo?.id) || written.at(-1)
     const locked = state.busy || !ready
     const first = !hasPages && !pending && !state.notice && !state.busy
+    const spreadLook = hasPages || (!ready && startSpread)     // 펼친 책 모양 (쓴 문장이 있거나, 있다고 알고 불러오는 중)
     const showResult = !pending && !state.notice && selected && state.insertAt === null
     const inputLabel = editing ? '내 문장 고치기' : state.insertAt !== null ? '사이에 넣을 문장' : '한 문장씩 써요'
     const canInput = !fairy || !state.finished || !!editing
@@ -132,15 +134,15 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
         </div>}
     </div>
 
-    return <main className={`diary-write${hasPages || fairy ? ' diary-write--spread' : ''}${fairy ? ' diary-write--fairy' : ''}${state.expr ? ' diary-write--expression' : ''}${showingHistory ? ' diary-write--history' : ''}${first ? ' diary-write--first' : ''}`} aria-label={fairy ? '동화 쓰기' : '일기 쓰기'}>
+    return <main className={`diary-write${spreadLook || fairy ? ' diary-write--spread' : ''}${fairy ? ' diary-write--fairy' : ''}${state.expr ? ' diary-write--expression' : ''}${showingHistory ? ' diary-write--history' : ''}${first ? ' diary-write--first' : ''}`} aria-label={fairy ? '동화 쓰기' : '일기 쓰기'}>
         <div className="diary-write__topbar" inert={!!storyDialog}>
             <button className="ui-button ui-button--secondary ui-button--small" id="to-list" type="button" onClick={onBack}>← 목록으로</button>
         </div>
         {storyDialog && <div className="diary-write__dialog-layer">{storyDialog}</div>}
         <div className="diary-write__viewport" inert={!!storyDialog}>
             <div className="diary-write__book">
-                <img className="diary-write__paper" src={fairy ? fairySpread : hasPages ? spread : singlePage} alt="" />
-                {(hasPages || fairy) && <section className="diary-write__page diary-write__page--left" inert={!showingHistory} aria-hidden={!showingHistory}>
+                <img className="diary-write__paper" src={fairy ? fairySpread : spreadLook ? spread : singlePage} alt="" />
+                {(spreadLook || fairy) && <section className="diary-write__page diary-write__page--left" inert={!showingHistory} aria-hidden={!showingHistory}>
                     {pageHeader(true)}
                     {!ready ? loadState : reviewing ? <>
                         <div className="diary-write__history-scroll" id="all"><p id="all-text">{written.map((sentence) => sentence.revised || sentence.original).join(' ')}</p></div>
