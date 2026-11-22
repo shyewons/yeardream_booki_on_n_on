@@ -208,6 +208,45 @@ def list_entries(user_id, book_id, page=1, size=None):
     return {"book": book, "items": items, "writing": writing, "today": today, **_meta(total, page, size)}
 
 
+# ── 책 출력 (책 한 권을 처음부터 끝까지, 책 보기 · PDF 출력 화면용) ─────────────────────
+def get_book_print(user_id, book_id):
+    """책 한 권의 보이는 글과 문장을 한 번에 돌려준다. 책이 없거나 내 책이 아니면 None.
+    {book, owner, topic, parts: [{id, label, date, chapter_no, display_no, sentences: [문장]}], first_at, last_at}
+      parts  동화는 문장이 있는 장을 1장부터 (label '1장', 화면 번호 display_no), 일기는 문장이 있는 날을 오래된 날부터 (label 은 화면이 날짜로 만든다)
+      문장은 보이는 줄(seq IS NOT NULL)만, 고친 문장(revised)이 있으면 그것, 없으면 원문
+      topic  동화 주제 {title, prompt, opening} (자유 주제 · 일기면 None)
+    쪽 나누기는 화면이 한다 (글자 크기 · 쪽 크기에 따라 달라지므로)."""
+    book = get_book(user_id, book_id)
+    if book is None:
+        return None
+    rows = db.query(
+        """SELECT s.entry_id, COALESCE(s.revised, s.original) AS text, s.written_at
+             FROM sentences s JOIN entries e ON e.id = s.entry_id
+            WHERE e.book_id = :bid AND s.seq IS NOT NULL
+            ORDER BY s.entry_id, s.seq""", {"bid": book_id})
+    by_entry = {}
+    for r in rows:
+        if r["text"]:
+            by_entry.setdefault(r["entry_id"], []).append(r["text"])
+    written = [r["written_at"] for r in rows if r["written_at"]]
+    parts = []
+    if book["kind"] == "fairy":
+        for c in _story(db, book_id)["chapters"]:
+            if c["display_no"] is not None and by_entry.get(c["id"]):
+                parts.append({"id": c["id"], "label": f"{c['display_no']}장", "date": None,
+                              "chapter_no": c["chapter_no"], "display_no": c["display_no"], "sentences": by_entry[c["id"]]})
+    else:
+        days = db.query("SELECT e.id, e.diary_date FROM entries e WHERE e.book_id = :bid ORDER BY e.diary_date, e.id", {"bid": book_id})
+        for d in days:
+            if by_entry.get(d["id"]):
+                parts.append({"id": d["id"], "label": None, "date": d["diary_date"], "chapter_no": None, "display_no": None,
+                              "sentences": by_entry[d["id"]]})
+    topic = _book_topic(db, book_id) if book["kind"] == "fairy" else None
+    return {"book": book, "owner": current_nickname(),
+            "topic": {"title": topic["title"], "prompt": topic["prompt"], "opening": topic["opening"]} if topic else None,
+            "parts": parts, "first_at": min(written) if written else None, "last_at": max(written) if written else None}
+
+
 # ── 글 하나 (문장 + 교정 항목까지) ───────────────────────────────────────────
 def get_entry(user_id, entry_id):
     """글이 없거나 내 글이 아니면 None. 문장은 순서대로, 교정 항목은 파이프라인 응답과 같은 이름으로 붙인다."""

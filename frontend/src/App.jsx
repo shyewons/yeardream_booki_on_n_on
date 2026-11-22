@@ -8,6 +8,7 @@ import DashboardPage from "./DashboardPage.jsx";    // 대시보드 페이지
 import PostDetailPage from "./PostDetailPage.jsx";  // 작성한 글 조회 페이지
 import WritePage from "./WritePage.jsx";            // 글쓰기 페이지
 import StartPage from "./StartPage.jsx";            // 서비스 시작 화면
+import BookPrintPage from "./BookPrintPage.jsx";    // 책 출력 (책 보기 + PDF 저장) 페이지
 
 
 export default function App() {
@@ -232,7 +233,19 @@ export default function App() {
                     // 글쓰기 버튼: date 는 일기 날짜("2026-11-16"), 동화는 장("ch3" · "new" · null)
                     onWrite={handleWrite}
 
+                    // 오른쪽 위 '책 출력하기': 이 책을 처음부터 끝까지 책 모양으로 보고 PDF 로 저장하는 화면
+                    onPrint={() => setPage("bookPrint")}
+
                     onHome={() => setPage("home")}
+                    onAuthError={handleAuthError}
+                />
+            )}
+
+            {/* 책 출력 화면 (글 목록에서 들어오고, '목록으로'는 보던 쪽 그대로) */}
+            {page === "bookPrint" && (
+                <BookPrintPage
+                    bookId={bookId}
+                    onBack={() => setPage("postList")}
                     onAuthError={handleAuthError}
                 />
             )}

@@ -101,6 +101,12 @@ def book_entries(book_id: int, page: int = Query(1, ge=1), size: int | None = Qu
     return _found(_guard(repo.list_entries, uid, book_id, page, size), "책")
 
 
+@router.get("/books/{book_id}/print")                              # 책 출력: 책 한 권의 보이는 글과 문장 (책 보기 · PDF 출력 화면)
+def book_print(book_id: int):
+    uid = _user()
+    return _found(_guard(repo.get_book_print, uid, book_id), "책")
+
+
 @router.get("/entries/{entry_id}")
 def entry(entry_id: int):
     uid = _user()
