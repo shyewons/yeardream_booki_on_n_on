@@ -6,6 +6,7 @@ body:has(.farm-screen) { margin: 0; background: var(--color-outside); }
   width: 1024px;
   max-width: 100%;
   min-height: 768px;
+    height: 768px;
   margin-inline: auto;
   background: #bce580 url('./assets/backgrounds/farm-meadow.png') center / cover no-repeat;
 }
@@ -69,7 +70,7 @@ body:has(.farm-screen) { margin: 0; background: var(--color-outside); }
 .farm-screen__books {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(240px, auto));
+    grid-template-rows: repeat(2, 254px);
   gap: 16px 32px;
   margin: 0;
   padding: 0 104px;
@@ -88,7 +89,7 @@ body:has(.farm-screen) { margin: 0; background: var(--color-outside); }
   color: var(--color-text);
   cursor: pointer;
 }
-.farm-screen__animal-wrap { position: relative; display: flex; justify-content: center; align-items: flex-end; width: 100%; height: 160px; padding-bottom: 4px; }
+.farm-screen__animal-wrap { position: relative; display: flex; justify-content: center; align-items: flex-end; width: 100%; height: 132px; padding-bottom: 4px; }
 .farm-screen__animal-wrap::before { content: ''; position: absolute; bottom: 0; width: 140px; height: 16px; border-radius: 50%; background: #4c6a3124; box-shadow: 0 3px 8px #4c6a3124; }
 .farm-screen__animal { position: relative; display: block; max-width: 90%; max-height: 100%; object-fit: contain; }
 .farm-screen__animal--diary { height: 140px; }
@@ -97,8 +98,12 @@ body:has(.farm-screen) { margin: 0; background: var(--color-outside); }
 .farm-screen__book-title { display: grid; place-items: center; width: 100%; min-height: 60px; padding: 12px 14px; border-radius: 32px; font-size: var(--font-body); font-weight: var(--weight-semibold); line-height: var(--line-control); word-break: keep-all; overflow-wrap: anywhere; }
 .farm-screen__book-button:focus-visible, .farm-screen__dot:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 5px; }
 .farm-screen__book-button:active .farm-screen__book-title { box-shadow: var(--shadow-button-pressed); }
+.farm-screen__book-title { height: 80px; min-height: 80px; padding-block: 6px; }
+.farm-screen__book-title-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.farm-screen__category { line-height: 1.3; }
 .farm-screen__pagination { margin-top: 16px; }
 .farm-screen__dots { display: flex; justify-content: center; flex-wrap: wrap; gap: 0; max-width: 760px; margin-inline: auto; }
+.farm-screen__dots { position: absolute; bottom: 16px; left: 0; right: 0; }
 .farm-screen__dot { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
 .farm-screen__dot::before { content: ''; width: 24px; height: 24px; border: 3px solid var(--color-primary); border-radius: 50%; background: var(--color-cream-light); }
 .farm-screen__dot[aria-current='page']::before { background: var(--color-primary); }
