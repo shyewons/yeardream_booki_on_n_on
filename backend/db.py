@@ -8,6 +8,7 @@ sqlalchemy 는 실제로 DB를 부를 때만 불러온다.
 → 설치돼 있지 않아도 화면·교정 데모는 그대로 뜨고, DB 주소(/api/...)만 503 으로 안내한다.
 """
 import os
+import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -77,6 +78,7 @@ def _load_dotenv():
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, val = line.split("=", 1)
+            val = re.split(r"\s+#", val, maxsplit=1)[0]   # 값 뒤 주석 ( #...) 은 뗀다. 비밀번호 안의 # 처럼 붙어 있는 건 그대로
             os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
 
 
