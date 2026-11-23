@@ -289,6 +289,9 @@ export default function PostListPage({ bookId, bookInfo, page, onPageChange, onO
     const today = todayKST()
     const writing = data.writing
     const writingDate = writing?.date ? String(writing.date).slice(0, 10) : null
+    // 그날 일기에 쓴 문장이 있는지 (목록에 받아 둔 sentence_count). 있으면 글쓰기 화면을 불러오는 동안에도 펼친 책으로 그린다
+    // (한 쪽 그림 → 펼친 책으로 바뀌며 넘어갔다 오지 않게, 2026-11-23). 이 쪽 목록에 없는 날짜면 모름 = false (불러온 뒤 정한다)
+    const hasPages = (date) => data.items.some((item) => String(item.date).slice(0, 10) === date && item.sentence_count > 0)
     return <BookLayout book={book} onHome={onHome} onPrint={data.total ? onPrint : null} footer={
         <>
             <ListPager page={data.page} totalPages={data.total_pages} total={data.total} unit="일" onGo={onPageChange} />
@@ -299,8 +302,8 @@ export default function PostListPage({ bookId, bookInfo, page, onPageChange, onO
             <p className="ui-description">읽고 싶은 날짜를 눌러 주세요.</p>
             <div className="post-list__write-actions">
                 {/* 하루에 일기는 하나라서, 오늘 일기가 이미 있으면 그 글을 연다 (서버 list_entries 의 today: 없음 · 쓰는 중 · 저장함) */}
-                <button className="ui-button ui-button--primary" type="button" id="today-write" onClick={() => onWrite(today)}>{!data.today ? '새 일기 쓰기' : data.today.status === 'done' ? '오늘 일기 고쳐 쓰기' : '오늘 일기 이어서 쓰기'}</button>
-                {writing && writingDate !== today && <button className="ui-button ui-button--secondary" type="button" onClick={() => onWrite(writingDate)} aria-label={`이어서 쓰기 (${fmtDate(writingDate)})`}>이어서 쓰기</button>}
+                <button className="ui-button ui-button--primary" type="button" id="today-write" onClick={() => onWrite(today, hasPages(today))}>{!data.today ? '새 일기 쓰기' : data.today.status === 'done' ? '오늘 일기 고쳐 쓰기' : '오늘 일기 이어서 쓰기'}</button>
+                {writing && writingDate !== today && <button className="ui-button ui-button--secondary" type="button" onClick={() => onWrite(writingDate, hasPages(writingDate))} aria-label={`이어서 쓰기 (${fmtDate(writingDate)})`}>이어서 쓰기</button>}
             </div>
         </div>
         {data.items.length ? <EntryRows items={data.items} onOpenEntry={onOpenEntry} /> : <div className="post-list__empty"><p className="ui-body">아직 들려준 이야기가 없어요.</p><p className="ui-description ui-muted">새 일기 쓰기를 눌러 이야기를 시작해요.</p></div>}
