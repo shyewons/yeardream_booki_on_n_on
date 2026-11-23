@@ -28,6 +28,12 @@
 <p align="center"><img src="docs/screenshots/04-records.jpg" width="640" alt="이번 주 일기 · 선물 · 다시 살펴볼 맞춤법을 보여 주는 나의 기록 화면"></p>
 <p align="center">나의 기록: 이번 주 일기 · 선물 진행, 다시 살펴볼 맞춤법, 내가 골라 쓴 표현, 옷장</p>
 
+## 데이터 구조 (ERD)
+
+<p align="center"><a href="docs/erd.png"><img src="docs/erd.png" width="900" alt="users → books → entries → sentences → corrections 와 동화 주제 · 보상 표의 관계를 보여 주는 ERD"></a></p>
+
+사용자 → 책(동물 한 마리) → 글(일기 하루 · 동화 한 장) → 문장 → 교정 순으로 이어지고, 보상 표(reward_claims · user_clothes · user_equipped_clothes)는 사용자 · 책 · 의상(clothes)을 가리킵니다. 그림을 누르면 크게 볼 수 있습니다.
+
 > 아래 '실행 순서'가 **권장 실행 방법**입니다. 우리 팀이 발표 · 시연에 쓴 환경은 [팀 시연 환경 (참고)](#팀-시연-환경-참고)에 따로 적었습니다.
 
 ## 한눈에 보는 실행 순서
