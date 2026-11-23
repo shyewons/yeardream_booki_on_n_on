@@ -3,7 +3,7 @@
 # 한국어 맞춤법 교정 모델 비교 실험
 
 초등학생 글쓰기 교정 서비스에 쓸 **로컬 맞춤법 교정 모델**을 고르기 위한 실험이다.
-아동 개인정보 보호를 위해 외부 API 없이 로컬에서 돌릴 수 있는 1.5B 이하 모델만 비교했다.
+아동 개인정보 보호를 위해 외부 API 없이 로컬에서 돌릴 수 있는 3B 이하 모델만 비교했다.
 
 > ⚠️ 평가 데이터는 **100% 합성 데이터**다. 초등학생이 자주 틀리는 맞춤법 유형을 바탕으로 만든 예시 문장이며, 실제 아동의 글이나 개인정보는 포함되어 있지 않다.
 
@@ -21,7 +21,7 @@
 |---|---|---|---|---|
 | ① | [j5ng/et5-typos-corrector](https://huggingface.co/j5ng/et5-typos-corrector) | 교정 전용 (ET5) | 경량 T5 | Apache-2.0 |
 | ② | [theSOL1/kogrammar-base](https://huggingface.co/theSOL1/kogrammar-base) | 교정 전용 (KoBART) | 약 0.1B | MIT |
-| ③ | [kakaocorp/kanana-2-1.3b-instruct](https://huggingface.co/kakaocorp/kanana-2-1.3b-instruct) | 범용 sLLM (프롬프트로 교정) | 1.3B | Kanana Open License |
+| ③ | [kakaocorp/kanana-2-3b-instruct](https://huggingface.co/kakaocorp/kanana-2-3b-instruct) | 범용 sLLM (프롬프트로 교정) | 3B | Kanana Open License |
 
 세 모델 모두 파인튜닝 없이 공개된 그대로, 교정 결과 문장만 받아 비교했다.
 
@@ -48,7 +48,7 @@
 |---|---|---|---|---|---|---|
 | ① et5-typos-corrector | **71.0%** | **84.7%** | **80.9%** | **0.0%** | 68.5% | **0.25초** |
 | ② kogrammar-base | 46.0% | 79.0% | 62.2% | **0.0%** | 33.7% | 1.13초 |
-| ③ Kanana-2-1.3B-instruct | 65.0% | 73.1% | 71.1% | 15.0% | 64.0% | 0.54초 |
+| ③ Kanana-2-3B-instruct | 65.0% | 73.1% | 71.1% | 15.0% | 64.0% | 0.54초 |
 
 - **① vs ②**: 과교정은 둘 다 0%이고 나머지 지표는 모두 ①이 앞선다 (F0.5 +18.7%p, 속도 4배 이상).
 - **① vs ③**: 재현율은 비슷하지만 ③은 오류 없는 문장 20개 중 3개를 바꿨고(과교정 15%), 정밀도도 약 12%p 낮다.

@@ -49,9 +49,9 @@ MODELS = {
         "gen": {"max_length": 128, "num_beams": 4, "early_stopping": True},
     },
     "kanana": {
-        "name": "③ Kanana-2-1.3B-instruct",
-        # https://huggingface.co/kakaocorp/kanana-2-1.3b-instruct (--kanana-repo 로 바꿀 수 있음)
-        "repo": "kakaocorp/kanana-2-1.3b-instruct",
+        "name": "③ Kanana-2-3B-instruct",
+        # https://huggingface.co/kakaocorp/kanana-2-3b-instruct (--kanana-repo 로 바꿀 수 있음)
+        "repo": "kakaocorp/kanana-2-3b-instruct",
         "kind": "causal",
         "gen": {"max_new_tokens": 128, "do_sample": False},   # 같은 입력이면 항상 같은 출력
     },
