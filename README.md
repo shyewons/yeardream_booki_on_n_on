@@ -112,7 +112,7 @@ npm run dev                         # http://localhost:5173
 진짜 교정을 보려면:
 
 1. `pip install -r requirements-models.txt` (Windows 는 먼저 `$env:PYTHONUTF8="1"`)
-2. 맞춤법 근거 검색 DB `chroma_db/` 를 `backend/` 안에 둡니다 (제출 파일에 들어 있습니다. 다른 곳이면 `.env` 의 `DIARY_DB_PATH`)
+2. 맞춤법 근거 검색 DB `backend/chroma_db/` 는 저장소에 들어 있어 따로 만들 필요가 없습니다 (다른 곳에 두면 `.env` 의 `DIARY_DB_PATH`)
 3. `.env` 에 `USE_MODELS=1`
 4. 설명 모델 크기: `EXPLAIN_LLM=small`(기본, Kanana 1.5 2.1B) 또는 `large`(Kanana 2 3B, GPU · 맥 권장)
 5. 백엔드를 다시 켭니다. **처음 켤 때 모델을 내려받느라 몇 분 걸립니다** (터미널에 `[preload] … 완료` 가 나오면 준비 끝)
@@ -175,7 +175,7 @@ npm run dev -- --host               # 터미널에 나오는 Network 주소(http
 | 설명 · 표현 추천 (large) | [kakaocorp/kanana-2-3b-instruct](https://huggingface.co/kakaocorp/kanana-2-3b-instruct) | 카카오 | [Kanana Open License](https://huggingface.co/kakaocorp/kanana-2-3b-instruct/blob/main/LICENSE) |
 | 근거 검색 임베딩 | [nlpai-lab/KURE-v1](https://huggingface.co/nlpai-lab/KURE-v1) | 고려대학교 NLP&AI 연구실 (BAAI/bge-m3 기반) | MIT |
 | 벡터 DB 만들 때 문장 나누기 | [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) | BAAI | MIT |
-| 근거 문서 (chroma_db 의 원문) | [「'한글 맞춤법', '표준어 규정' 해설」(2018)](https://korean.go.kr/kornorms/refr/refrList.do) | 국립국어원 | 원문 PDF 는 저장소에 넣지 않고 출처만 표기 |
+| 근거 문서 (chroma_db 의 원문) | [「'한글 맞춤법', '표준어 규정' 해설」(2018)](https://korean.go.kr/kornorms/refr/refrList.do) | 국립국어원 | `backend/chroma_db/` 에 해설서 문장 조각과 임베딩이 들어 있습니다 (원문 PDF 는 넣지 않음). 비영리 교육 목적으로 출처를 밝혀 사용 |
 | 형태소 분석 | [Kiwi (kiwipiepy)](https://github.com/bab2min/kiwipiepy) | bab2min | 배포처 라이선스를 따름 |
 | 글꼴 | [Paperlogy(페이퍼로지)](https://www.sandollcloud.com/free-font/21071/Paperlogy) | 이주임 · 김도균 / 피티앤 | SIL Open Font License 1.1 |
 | 그림 (배경 · 캐릭터 · 아이콘 등, `frontend/src/assets/`) | 팀 디자인 | 팀 (AI 이미지 생성 도구를 활용해 제작 · 편집) | 팀 제작물 |
