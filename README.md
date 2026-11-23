@@ -61,11 +61,12 @@ CREATE DATABASE app_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 | 순서 | 파일 | 하는 일 |
 |---|---|---|
 | 1 | `schema.sql` | 사용자 · 책 · 글 · 문장 · 교정 · 동화 주제 표를 만들고 동화 주제 10개를 넣습니다 |
-| 2 | `schema_rewards.sql` | 보상 표(옷 · 받은 기록 · 가진 옷 · 입은 옷)를 만듭니다 |
+| 2 | `schema_rewards.sql` | 보상 표(옷 · 받은 기록 · 가진 옷 · 입은 옷)를 만듭니다. 팀 DB 의 보상 표를 코드(`rewards_repo.py`)에 맞춰 다시 적은 정의라, 길이 · 키 이름 같은 세부 조건은 팀 DB 와 조금 다를 수 있습니다 |
 | 3 | `seed_clothes.sql` | 선물로 줄 옷 43벌을 넣습니다 (마지막 줄 결과가 diary 10, fairy 33 이면 성공) |
 | (선택) | `seed_dummy.sql` | 목록 · 쪽 넘기기를 시험할 더미 사용자와 책 |
 
-> `schema.sql` 은 표를 지우고 다시 만듭니다. **이미 쓰고 있는 DB 에서는 실행하지 마세요.**
+> `schema.sql` · `schema_rewards.sql` 은 표를 지우고 다시 만듭니다. **이미 쓰고 있는 DB 에서는 실행하지 마세요** (쓴 글 · 받은 옷이 모두 지워집니다).
+> 처음부터 다시 만들 때는 보상 표가 사용자 · 책 표를 가리키고 있어서, `schema_rewards.sql` 맨 위의 `DROP TABLE` 네 줄을 먼저 실행한 뒤 1 → 2 → 3 순서로 실행합니다.
 
 ### ③ 백엔드 설정 (`backend/.env`)
 
