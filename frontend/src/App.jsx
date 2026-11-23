@@ -9,6 +9,11 @@ import PostDetailPage from "./PostDetailPage.jsx";  // 작성한 글 조회 페�
 import WritePage from "./WritePage.jsx";            // 글쓰기 페이지
 import StartPage from "./StartPage.jsx";            // 서비스 시작 화면
 import BookPrintPage from "./BookPrintPage.jsx";    // 책 출력 (책 보기 + PDF 저장) 페이지
+import "./AppStage.css";                            // 화면 키우기 (.app-stage)
+
+// 모든 화면의 기준 크기 (각 화면 CSS 의 width: 1024px · min-height: 768px). 창이 더 크면 이 비율로 키운다
+const STAGE_W = 1024;
+const STAGE_H = 768;
 
 
 export default function App() {
@@ -42,6 +47,21 @@ export default function App() {
     const [writeHistory, setWriteHistory] = useState(false);
     // writeSpread: 쓴 문장이 있는 글을 연다고 알고 들어왔는지 (글 보기의 고쳐쓰기 · 이어서 쓰기). 참이면 불러오는 동안에도 일기를 펼친 책으로 그린다
     const [writeSpread, setWriteSpread] = useState(false);
+    // 화면 키우기: 창(스크롤바 뺀 크기)이 1024 × 768 보다 크면 가로 · 세로 중 먼저 꽉 차는 쪽에 맞춘 배율. 1 보다 작아지지 않는다 (줄이지 않음)
+    //   모든 화면은 높이 768 안에 들어간다 (글쓰기 · 글 보기도 책 높이 고정, 넘치는 곳은 안에서 스크롤). 그래서 배율은 창 크기로만 정해 화면을 오가도 흔들리지 않는다
+    //   top: 가로에 맞춰 키워 위아래가 남으면 가운데로 내린다
+    const [stage, setStage] = useState({ scale: 1, top: 0 });
+    useEffect(() => {
+        const fit = () => {
+            const w = document.documentElement.clientWidth;
+            const h = document.documentElement.clientHeight;
+            const scale = Math.max(1, Math.min(w / STAGE_W, h / STAGE_H));
+            setStage({ scale, top: scale > 1 ? Math.max(0, (h - STAGE_H * scale) / 2) : 0 });
+        };
+        fit();
+        window.addEventListener("resize", fit);
+        return () => window.removeEventListener("resize", fit);
+    }, []);
     const [justSaved, setJustSaved] = useState(false);
     
     // 확인 완료 시 목적지만 기억하고, 시작하기를 눌렀을 때 이동한다.
@@ -125,7 +145,7 @@ export default function App() {
     }, [startupAttempt]);
 
     return (
-        <>
+        <div className="app-stage" style={{ "--stage-scale": stage.scale, "--stage-top": `${stage.top}px` }}>
             {/* 1. 사용자 확인 결과를 받은 뒤 시작하기로 다음 화면에 진입 */}
             {page === "checking" && (
                 <StartPage
@@ -314,6 +334,6 @@ export default function App() {
                     onAuthError={handleAuthError}
                 />
             )}
-        </>
+        </div>
     );
 }

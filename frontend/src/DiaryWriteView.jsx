@@ -48,6 +48,7 @@ function CorrectionPanel({ sentence }) {
 export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, onBack, maxChars, renderWork, SentenceComponent, fairy = false, storyContext, expression, chapterActions, storyDialog, startHistory = false, startSpread = false }) {
     const [history, setHistory] = useState(startHistory)
     const historyButton = useRef(null)
+    const middleRef = useRef(null)      // 오른쪽 쪽 가운데 칸 (주제 · 결과 · 안내 · 표현 고르기). 넘치면 이 칸만 스크롤 (2026-11-23)
     const dateInput = useRef(null)
     const written = state.sentences.filter((sentence) => sentence.original)
     const hasPages = written.length > 0
@@ -68,6 +69,12 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
     useEffect(() => {
         if (showingHistory) historyButton.current?.focus({ preventScroll: true })
     }, [showingHistory, hasPages])
+
+    // 새 결과 · 안내 · 표현 고르기가 나오면 가운데 칸을 맨 위로 (길어서 내려 둔 채로 다음 문장을 써도 새 내용의 처음이 보이게)
+    const middleKey = `${selected?.id}-${selected?.revised}-${state.notice}-${!!pending}-${!!state.expr}`
+    useEffect(() => {
+        if (middleRef.current) middleRef.current.scrollTop = 0
+    }, [middleKey])
 
     // 키보드가 화면 높이를 줄여도 현재 입력칸과 조작 영역으로 스크롤할 수 있다.
     useEffect(() => {
@@ -160,12 +167,15 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
                 <section className="diary-write__page diary-write__page--right" inert={showingHistory} aria-hidden={showingHistory}>
                     {pageHeader()}
                     {!ready ? loadState : <>
+                        {/* 가운데 칸: 위(장 표시) · 아래(입력칸 · 버튼)는 그대로 두고 이 칸만 넘치면 스크롤한다 (DiaryWriteView.css 끝) */}
+                        <div className="diary-write__middle" ref={middleRef}>
                         {storyContext}
                         {expression || (pending ? <div className="diary-write__result diary-write__working" role="status"><h2>문장을 확인하고 있어요</h2><div className="diary-write__result-scroll">{renderWork(pending.work)}</div></div>
                             : state.busy ? <p className="ui-notice" role="status">문장을 확인하고 있어요…</p>
                             : state.notice || state.choices ? <section className="diary-write__notice ui-notice" aria-label="입력 안내"><p id="msg" role="status">{state.notice}</p>{state.shown && <p id="shown">{state.shown}</p>}
                                 {state.choices && <div id="choices">{state.choices.items.map((item, i) => <div key={i}><p>{item.text}</p><div className="ui-actions">{item.labels.map((label, n) => <button type="button" className="ui-button ui-button--secondary ui-button--small" disabled={state.busy} key={n} onClick={() => writer.choose(i, n)}>{label}</button>)}</div></div>)}</div>}
                             </section> : showResult ? <CorrectionPanel key={`${selected.id}-${selected.revised}`} sentence={selected} /> : null)}
+                        </div>
                         {canInput && !state.expr && <section className={`diary-write__composer${editing ? ' diary-write__composer--editing' : ''}`} id="composer" aria-label="문장 입력">
                             <div className="diary-write__input-heading">
                                 <label htmlFor="box">{inputLabel}</label>
