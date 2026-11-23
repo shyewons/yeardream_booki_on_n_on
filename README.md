@@ -7,7 +7,9 @@
 |---|---|
 | `frontend/` | 화면 (React 19 + Vite). 자세한 구조는 [frontend/README.md](frontend/README.md) |
 | `backend/` | 서버 (FastAPI + MySQL) 와 맞춤법 교정 파이프라인. 주소 · 설정 · 로그는 [backend/README.md](backend/README.md) |
-| `analysis/` | 맞춤법 근거 검색용 벡터 DB(chroma_db)를 만들 때 쓴 분석 자료 |
+| `analysis/` | 모델 평가 자료 (맞춤법 교정 모델 비교 · 근거 검색(RAG) · 동화 sLLM). 자세한 내용은 [analysis/README.md](analysis/README.md) |
+
+> 아래 '실행 순서'가 **권장 실행 방법**입니다. 우리 팀이 발표 · 시연에 쓴 환경은 [팀 시연 환경 (참고)](#팀-시연-환경-참고)에 따로 적었습니다.
 
 ## 한눈에 보는 실행 순서
 
@@ -109,6 +111,23 @@ npm run dev -- --host               # 터미널에 나오는 Network 주소(http
 
 태블릿의 필기 입력(아이패드 스크리블, 윈도우 펜, S펜)으로 글쓰기 칸에 손글씨를 쓸 수 있습니다.
 
+## 팀 시연 환경 (참고)
+
+위 '실행 순서'와 같은 방법이고, 발표 · 시연 때 아래 값으로 켰습니다. 처음 실행한다면 위의 권장 방법(기본값)을 먼저 따라 해 주세요.
+
+| 항목 | 권장(기본) | 팀 시연 |
+|---|---|---|
+| 서버 컴퓨터 | 아무 컴퓨터 (모델은 GPU · 맥 권장) | Apple Silicon 맥 (모델은 맥 GPU `mps` 로 자동 선택) |
+| 모델 | `USE_MODELS=0` (임시 응답) | `USE_MODELS=1` |
+| 설명 모델 | `EXPLAIN_LLM=small` (Kanana 1.5 2.1B) | `EXPLAIN_LLM=large` (Kanana 2 3B) |
+| 백엔드 | `uvicorn main:app --reload` | 같음 |
+| 프론트 | `npm run dev` | 같음 |
+| 접속 기기 | 같은 컴퓨터의 브라우저 (`http://localhost:5173`) | 같음 |
+| 입력 | 키보드 | 키보드 + 태블릿 펜(윈도우 필기 입력) |
+
+- 시연 전에는 시연용 별명으로 새로 시작합니다. 같은 별명을 다시 쓰려면 DB 에서 그 별명의 사용자 · 책 · 글을 지우고, 브라우저에서는 시크릿 창을 쓰거나 개발자 도구 콘솔에서 `localStorage.removeItem('booksil_token')` 을 실행합니다.
+- `EXPLAIN_LLM=large` 는 아래 [라이선스](#사용한-모델--데이터--에셋과-라이선스)의 표기 의무가 있습니다.
+
 ## 자주 생기는 문제
 
 | 증상 | 확인할 것 |
@@ -118,6 +137,28 @@ npm run dev -- --host               # 터미널에 나오는 Network 주소(http
 | 옷장 · 선물이 비어 있음 | ②의 `schema_rewards.sql` · `seed_clothes.sql` 을 실행했는지 |
 | 교정이 너무 느림 / 메모리 부족 | `EXPLAIN_LLM=small`, 첫 요청은 모델을 불러오느라 느립니다 |
 | `.env` 를 고쳤는데 그대로 | 백엔드를 껐다 켜기 (`--reload` 는 `.env` 를 다시 읽지 않습니다) |
+
+## 사용한 모델 · 데이터 · 에셋과 라이선스
+
+이 저장소의 코드에는 아직 별도 라이선스를 정하지 않았습니다. 아래 외부 모델 · 데이터 · 에셋은 각각의 라이선스를 따릅니다 (2026-11-23 각 배포처에서 확인).
+
+| 구분 | 이름 | 만든 곳 | 라이선스 |
+|---|---|---|---|
+| 맞춤법 교정 | [j5ng/et5-typos-corrector](https://huggingface.co/j5ng/et5-typos-corrector) | j5ng | Apache-2.0 |
+| 설명 · 표현 추천 (small, 기본) | [kakaocorp/kanana-1.5-2.1b-instruct-2505](https://huggingface.co/kakaocorp/kanana-1.5-2.1b-instruct-2505) | 카카오 | Apache 2.0 |
+| 설명 · 표현 추천 (large) | [kakaocorp/kanana-2-3b-instruct](https://huggingface.co/kakaocorp/kanana-2-3b-instruct) | 카카오 | [Kanana Open License](https://huggingface.co/kakaocorp/kanana-2-3b-instruct/blob/main/LICENSE) |
+| 근거 검색 임베딩 | [nlpai-lab/KURE-v1](https://huggingface.co/nlpai-lab/KURE-v1) | 고려대학교 NLP&AI 연구실 (BAAI/bge-m3 기반) | MIT |
+| 벡터 DB 만들 때 문장 나누기 | [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) | BAAI | MIT |
+| 근거 문서 (chroma_db 의 원문) | [「'한글 맞춤법', '표준어 규정' 해설」(2018)](https://korean.go.kr/kornorms/refr/refrList.do) | 국립국어원 | 원문 PDF 는 저장소에 넣지 않고 출처만 표기 |
+| 형태소 분석 | [Kiwi (kiwipiepy)](https://github.com/bab2min/kiwipiepy) | bab2min | 배포처 라이선스를 따름 |
+| 글꼴 | [Paperlogy(페이퍼로지)](https://www.sandollcloud.com/free-font/21071/Paperlogy) | 이주임 · 김도균 / 피티앤 | SIL Open Font License 1.1 |
+| 그림 (배경 · 캐릭터 · 아이콘 등, `frontend/src/assets/`) | 팀 디자인 | 팀 (AI 이미지 생성 도구를 활용해 제작 · 편집) | 팀 제작물 |
+| 평가 데이터 (`analysis/`) | 맞춤법 평가 문장 | 팀 | 직접 만든 합성 문장 (실제 아동의 글 · 개인정보 없음) |
+
+- **Kanana 2 (`EXPLAIN_LLM=large`)**: Kanana Open License 에 따라 이 모델로 만든 서비스는 웹사이트 · 화면 · 문서에 **"Powered by Kanana"** 를 표시해야 합니다. 또한 API · 온디바이스 등으로 제3자에게 제공 · 판매하려면 카카오의 별도 상업 라이선스가 필요합니다. 기본값 `small`(Kanana 1.5, Apache 2.0)에는 이 조건이 없습니다.
+- 그 밖의 파이썬 · 자바스크립트 라이브러리(FastAPI, React, transformers, ChromaDB 등)는 각 패키지의 라이선스를 따릅니다 (`backend/requirements*.txt`, `frontend/package.json`).
+
+Powered by Kanana
 
 ## 개인정보
 
