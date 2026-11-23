@@ -24,8 +24,8 @@ def create_user(body: dict = Body(...)):
         raise HTTPException(status_code=400, detail=str(e))
     except users_repo.DuplicateNickname as e:
         raise HTTPException(status_code=409, detail=str(e))
-    except (db.DBNotConfigured, db.DBUnavailable) as e:
-        raise HTTPException(status_code=503, detail=str(e))
+    except (db.DBNotConfigured, db.DBUnavailable) as e:             # SQL 실패(db.DBError)는 status 가 500 일 수 있다
+        raise HTTPException(status_code=getattr(e, "status", 503), detail=str(e))
 
 
 @router.get("/me")
@@ -36,7 +36,7 @@ def me():
     try:
         user = auth.find_user_by_token(token)
     except (db.DBNotConfigured, db.DBUnavailable) as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=getattr(e, "status", 503), detail=str(e))
     if user is None:
         raise HTTPException(status_code=401, detail="별명 정보를 찾을 수 없어요. 별명을 다시 만들어 주세요.")
     devlog.set_user(user["id"])                    # 이 요청의 로그에 사용자 번호를 붙인다

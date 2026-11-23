@@ -1,0 +1,18 @@
+/* 화면 키우기 (App.jsx 의 .app-stage, 2026-11-23 낙준).
+   모든 화면은 1024 × 768 기준으로 디자인되어 있다. 창이 그보다 크면 비율을 지킨 채 가로 · 세로 중 먼저 꽉 차는 쪽에 맞춰
+   통째로 키워(--stage-scale, 1 이상) 가운데에 놓는다. 창이 작으면 배율 1 = 지금까지와 같다 (줄이지는 않는다).
+   남는 위아래 · 양옆은 각 화면의 body 배경색(--color-outside)이 채운다. */
+.app-stage {
+    --stage-scale: 1;
+    --stage-top: 0px;
+    width: 100%;
+    max-width: 1024px;
+    margin: var(--stage-top) auto 0;
+    transform: scale(var(--stage-scale));
+    transform-origin: top center;
+}
+
+/* 인쇄(책 출력 PDF)는 키우지 않는다: 쪽 크기 · 배율은 BookPrintPage.css 가 정한다 */
+@media print {
+    .app-stage { width: auto; max-width: none; margin: 0; transform: none; }
+}

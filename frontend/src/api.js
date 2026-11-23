@@ -38,7 +38,7 @@ export class ApiError extends Error {
 }
 
 // keepalive: true 면 화면이 닫히는 중에도 요청이 끝까지 간다 (글쓰기 화면이 가려질 때 쓰던 문장을 보낼 때 쓴다)
-export async function api(path, { method = 'GET', body, keepalive = false } = {}) {
+export async function api(path, { method = 'GET', body, keepalive = false, signal } = {}) {
   const headers = {}
   const token = getToken()
   if (token) headers['X-User-Token'] = token
@@ -51,9 +51,10 @@ export async function api(path, { method = 'GET', body, keepalive = false } = {}
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       keepalive,
+      signal,
     })
   } catch {
-    throw new ApiError(0, '서버에 연결하지 못했어요. 잠시 후 다시 해 주세요.')
+    throw new ApiError(0, '서버에 연결하지 못했어요. 잠시 후 다시 해 주세요. (오류 코드: 서버-연결)')   // 백엔드 서버 자체에 닿지 못함 (DB 오류 DB-… 와 구분)
   }
 
   let data = null
@@ -65,7 +66,8 @@ export async function api(path, { method = 'GET', body, keepalive = false } = {}
 
   if (!res.ok) {
     // FastAPI 는 detail 에 글자를 주지만, 요청 형식 오류(422)는 목록을 주므로 글자일 때만 그대로 쓴다
-    const detail = typeof data?.detail === 'string' ? data.detail : '요청을 처리하지 못했어요.'
+    // 서버가 문구를 주지 않은 오류(예기치 못한 500, 프록시 오류)는 HTTP 코드를 오류 코드로 붙인다
+    const detail = typeof data?.detail === 'string' ? data.detail : `요청을 처리하지 못했어요. (오류 코드: HTTP-${res.status})`
     throw new ApiError(res.status, detail)
   }
   return data
@@ -80,7 +82,7 @@ export async function apiStream(path, body, onEvent) {
   try {
     res = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) })
   } catch {
-    throw new ApiError(0, '서버에 연결하지 못했어요. 잠시 후 다시 해 주세요.')
+    throw new ApiError(0, '서버에 연결하지 못했어요. 잠시 후 다시 해 주세요. (오류 코드: 서버-연결)')   // 백엔드 서버 자체에 닿지 못함 (DB 오류 DB-… 와 구분)
   }
   if (!res.ok || !res.body) throw new ApiError(res.status, '요청을 처리하지 못했어요.')
   const reader = res.body.getReader()

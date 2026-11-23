@@ -1,0 +1,195 @@
+/* 05 → 07 책 레이아웃. 일기와 동화가 공유하고 테마만 구분한다. */
+body:has(.diary-write) { margin: 0; background: var(--color-outside); }
+.diary-write {
+    --page-width: 816px;
+    --book-height: 680px;
+    --page-peek: 176px;
+    position: relative;
+    box-sizing: border-box;
+    width: 1024px;
+    max-width: 100%;
+    min-height: 768px;
+    margin-inline: auto;
+    overflow: clip;
+    overflow-anchor: none;
+    padding: 16px 0;
+    background: #bce580 url('./assets/backgrounds/farm-meadow.png') center / cover no-repeat;
+}
+.diary-write *, .diary-write *::before, .diary-write *::after { box-sizing: border-box; }
+.diary-write__topbar { height: 56px; padding-inline: 24px; }
+.diary-write__viewport { position: relative; width: 100%; }
+.diary-write__book {
+    position: relative;
+    width: 864px;
+    min-height: var(--book-height);
+    margin-left: 136px;
+}
+.diary-write__paper { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+.diary-write__page { position: relative; display: flex; flex-direction: column; min-height: var(--book-height); padding: 36px 48px 32px 64px; }
+.diary-write__page[inert] { visibility: hidden; }
+.diary-write__page-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; min-height: 56px; }
+.diary-write__category {
+    position: relative;
+    isolation: isolate;
+    margin: 0;
+    padding: 4px 32px;
+    border: 2px solid #fff0bf;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(#fff6d6, #f7d87a);
+    font-size: var(--font-title);
+    font-weight: var(--weight-bold);
+    box-shadow: inset 0 2px 2px #fff8, 0 3px 5px #8b6b2633;
+}
+.diary-write__category::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--texture-paper) center / var(--texture-size); opacity: var(--texture-opacity); z-index: -1; }
+.diary-write__date { position: relative; }
+.diary-write__date button { display: flex; align-items: center; gap: 18px; min-height: 56px; padding: 8px 16px; border: 1px solid #d3c09b; border-radius: 16px; background: #efe2c8; box-shadow: inset 0 2px 4px #97795333, 0 1px #fff; color: var(--color-text); font-family: inherit; font-size: var(--font-body); font-weight: 400; cursor: pointer; }
+.diary-write__date input { position: absolute; width: 1px; height: 1px; bottom: 0; right: 0; opacity: 0; pointer-events: none; }
+.diary-write__date-static { margin: 0; font-size: var(--font-body); }
+.diary-write__page-navigation { display: flex; margin: 10px 0 16px; }
+.diary-write__page-navigation--left { justify-content: space-between; align-items: center; gap: 16px; }
+.diary-write__composer { margin-top: 16px; flex-shrink: 0; }
+.diary-write--first .diary-write__composer { margin-top: 100px; }
+.diary-write__input-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.diary-write__input-heading label { color: var(--color-muted); font-size: 28px; font-weight: var(--weight-bold); }
+.diary-write__input-line { position: relative; }
+.diary-write__input-line .ui-input { width: 100%; min-width: 0; padding: 8px 44px 8px 8px; font-size: var(--font-input); font-weight: 400; }
+.diary-write__input-line .ui-input:not(:placeholder-shown) { padding-right: 8px; }
+.diary-write__input-line .ui-input:focus-visible { outline: none; border-bottom: 3px solid var(--color-primary); box-shadow: 0 2px 0 #50690c22; }
+.diary-write__input-pencil { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.diary-write__actions { justify-content: flex-end; margin-top: 20px; flex-shrink: 0; }
+.diary-write__actions #go { min-width: 200px; }
+.diary-write__actions { flex-wrap: nowrap; align-items: center; }
+.diary-write__action-status { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.diary-write__action-status .diary-write__save-status > div,
+.diary-write__action-status .diary-write__save-status > p,
+.diary-write__action-status .diary-write__autosave-note { margin: 0; padding: 0; text-align: left; }
+.diary-write__action-status .diary-write__save-status > * + * { margin-top: 8px; }
+.diary-write__actions > button { flex-shrink: 0; }
+.diary-write__save-status { font-size: var(--font-support); color: var(--color-muted); }
+.diary-write__save-status > div, .diary-write__save-status > p { margin: 10px 0 0; }
+.diary-write__save-status button { margin-left: 12px; }
+.diary-write__autosave-note { margin: 12px 0 0; color: var(--color-muted); font-size: var(--font-support); }
+.diary-write__question { font-size: var(--font-description); color: var(--color-muted); margin: 12px 0 0; }
+.diary-write__load-state { display: flex; align-items: center; justify-content: center; flex: 1; min-height: 440px; text-align: center; font-size: var(--font-description); }
+
+/* 종이와 좌우 본문은 함께 이동하며, 비활성 페이지는 초점을 받지 않는다. */
+.diary-write--spread .diary-write__book { display: grid; grid-template-columns: repeat(2, var(--page-width)); width: calc(var(--page-width) * 2); margin-left: 0; transform: translateX(calc(var(--page-peek) - var(--page-width))); transition: transform 240ms ease; }
+.diary-write--history .diary-write__book { transform: translateX(32px); }
+.diary-write--spread .diary-write__page { padding: 28px 40px 20px; }
+.diary-write--spread .diary-write__page--left { padding-inline: 64px 40px; }
+.diary-write--spread .diary-write__composer { padding: 12px 20px; border: 1px solid #d5c5a5; border-radius: 20px; background: #fffcf0; }
+.diary-write__composer--editing .diary-write__input-heading label { color: var(--color-primary); }
+.diary-write--spread .diary-write__input-heading label { font-size: var(--font-description); }
+.diary-write__result { min-height: 170px; border: 1px solid #c0ad95; border-radius: 20px; padding: 12px 20px; background: #ece5dc; }
+.diary-write__result h2 { color: var(--color-muted); margin: 0 0 8px; font-size: var(--font-description); font-weight: var(--weight-semibold); }
+.diary-write__result-scroll { max-height: 170px; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; scrollbar-gutter: stable; padding-right: 4px; font-size: var(--font-description); }
+.diary-write__corrected { font-size: var(--font-correction); line-height: 1.5; margin: 0 0 12px; }
+.diary-write mark { background: #ffec9f; color: inherit; border-radius: 6px; padding-inline: 2px; }
+.diary-write__result details { border: 1px solid #d1bfaa; border-radius: 10px; margin-top: 8px; overflow: hidden; }
+.diary-write__result summary { padding: 10px 14px; min-height: 48px; background: #f4e9d9; cursor: pointer; font-weight: 500; }
+.diary-write__reason { padding: 8px 14px; background: #fff7ec; }
+.diary-write__reason p { margin: 0; }
+.diary-write__evidence { font-size: var(--font-support); color: var(--color-muted); }
+.diary-write__notice { background: #fff0df; max-height: 250px; overflow-y: auto; flex-shrink: 0; }
+.diary-write__notice p { margin: 0 0 10px; }
+.diary-write__working { margin-top: 16px; }
+.diary-write__history-title { font-size: var(--font-title); margin: 0; }
+.diary-write__history-scroll { min-height: 0; height: 390px; overflow-y: auto; scrollbar-gutter: stable; padding-right: 8px; font-size: var(--font-body); overflow-wrap: anywhere; }
+.diary-write__history-scroll ul { list-style: none; margin: 0; padding: 0; }
+.diary-write__history-scroll .card { border-bottom: 1px solid #c9c4ba; padding: 12px 0; }
+.diary-write__history-scroll .editing { background: #fff3cf; }
+.diary-write__sentence-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+.diary-write__sentence-head .text { margin: 4px 0 0; line-height: 1.5; }
+.diary-write__sentence-tools { display: flex; gap: 8px; }
+.diary-write__icon-button { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; padding: 0; flex-shrink: 0; border: none; border-radius: 12px; background: transparent; color: var(--color-text); cursor: pointer; }
+.diary-write__icon-button:disabled { color: #b6afa0; cursor: default; }
+.diary-write__icon-button:hover:not(:disabled) { background: #f1e5cf; }
+.diary-write__icon { display: inline-block; width: 20px; height: 20px; flex-shrink: 0; background: currentColor; mask: var(--diary-icon) center / contain no-repeat; }
+.diary-write__icon--pencil { --diary-icon: url('./assets/icons/pencil.svg'); }
+.diary-write__icon--eraser { --diary-icon: url('./assets/icons/eraser.svg'); }
+.diary-write__icon--up { --diary-icon: url('./assets/icons/arrow-up.svg'); }
+.diary-write__icon--down { --diary-icon: url('./assets/icons/arrow-down.svg'); }
+.diary-write__icon--calendar { --diary-icon: url('./assets/icons/calendar.svg'); width: 24px; height: 24px; }
+.diary-write__input-pencil { width: 28px; height: 28px; }
+.diary-write__sentence-meta { display: flex; gap: 12px; align-items: center; font-size: var(--font-support); color: var(--color-muted); }
+.diary-write__sentence-info > summary { min-height: 48px; padding-top: 10px; color: var(--color-muted); font-size: var(--font-support); cursor: pointer; }
+.diary-write .orig, .diary-write .fix, .diary-write .mode { font-size: var(--font-description); }
+.diary-write .orig { color: var(--color-muted); }
+.diary-write .fix summary { cursor: pointer; min-height: 48px; }
+.diary-write .confirm { padding: 16px; border: 1px solid var(--color-error-border); border-radius: 16px; background: var(--color-error-surface); font-size: var(--font-description); }
+.diary-write__review-actions { justify-content: flex-end; margin-top: 16px; }
+.diary-write__mascot { position: absolute; pointer-events: none; width: 220px; height: 220px; left: -16px; bottom: 0; overflow: hidden; }
+.diary-write__mascot img { width: 260px; height: auto; margin-left: -20px; }
+.diary-write--history .diary-write__mascot { left: auto; right: -32px; }
+.diary-write--history .diary-write__mascot img { transform: scaleX(-1); }
+.diary-write__side-question { position: absolute; left: 10px; bottom: 240px; width: 152px; max-height: 180px; overflow-y: auto; margin: 0; padding: 18px 12px; border-radius: 32px; background: #fffaf0; box-shadow: 0 3px 8px #886f5022; color: var(--color-text); font-size: var(--font-support); text-align: center; word-break: keep-all; overflow-wrap: anywhere; }
+.diary-write__bubble { position: absolute; pointer-events: none; left: 220px; bottom: 58px; width: 300px; aspect-ratio: 1.8; }
+.diary-write__bubble img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 5px #886f5022); }
+.diary-write__bubble p { position: absolute; inset: 20% 5% 22% 15%; margin: 0; display: flex; align-items: center; justify-content: center; text-align: center; font-size: var(--font-description); font-weight: var(--weight-medium); }
+.diary-write button:focus-visible, .diary-write summary:focus-visible, .diary-write [tabindex="0"]:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 3px; }
+
+/* 동화도 공통 페이지·본문·입력·버튼 크기를 유지한다. */
+.diary-write__chapter { margin: 0; padding: 8px 24px; border-radius: 16px; background: #f1dfc3; font-size: var(--font-body); box-shadow: inset 0 2px 4px #97795322; }
+.diary-write--fairy.diary-write--first .diary-write__composer { margin-top: 16px; }
+.diary-write--fairy .diary-write__mascot img { width: 220px; margin-left: 0; }
+.diary-write--fairy .diary-write__bubble { width: 260px; bottom: 24px; }
+.fairy-write__context { margin: 8px 0 12px; font-size: var(--font-support); }
+.fairy-write__context summary { cursor: pointer; min-height: 48px; padding: 12px 0; color: var(--color-muted); }
+.fairy-write__context-scroll { max-height: 150px; overflow-y: auto; padding: 0 12px 8px 0; overflow-wrap: anywhere; }
+.fairy-write__context p { margin: 0 0 8px; }
+.diary-write--fairy .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.fairy-write__chapter-actions { margin-top: 16px; justify-content: flex-end; }
+.diary-write--fairy #expr-box { min-height: 0; }
+.fairy-write__expression-original { margin: 0 0 12px; padding: 12px 20px; border: 1px solid #c0ad95; border-radius: 20px; background: #ece5dc; }
+.fairy-write__expression-original h2 { margin: 0 0 8px; font-size: var(--font-description); color: var(--color-muted); }
+.fairy-write__expression-original p { margin: 0; font-size: var(--font-correction); line-height: 1.5; max-height: 100px; overflow-y: auto; overflow-wrap: anywhere; }
+.fairy-write__expression-options { max-height: 235px; overflow-y: auto; padding: 4px; scrollbar-gutter: stable; overflow-wrap: anywhere; }
+.fairy-write__expression-options .ask { margin: 0 0 12px; font-size: var(--font-description); }
+.fairy-write__expression-options .demo-note { font-size: var(--font-support); }
+.fairy-write__expression-options .opt + .opt { margin-top: 8px; }
+.fairy-write__expression-options label { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 12px; align-items: start; padding: 12px 16px; border: 2px solid #c6b28d; border-radius: 18px; background: #fff9ed; cursor: pointer; }
+.fairy-write__expression-options label:has(:checked) { border-color: var(--color-primary); background: #f0f2cc; }
+.fairy-write__expression-options label:has(:focus-visible) { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+.fairy-write__expression-options input { width: 24px; height: 24px; margin: 4px 0 0; accent-color: var(--color-primary); }
+.fairy-write__expression-options .text { font-size: var(--font-body); }
+.fairy-write__expression-options .point { grid-column: 2; margin-top: 4px; font-size: var(--font-support); color: var(--color-muted); }
+.diary-write--fairy #expr-box > .row { margin-top: 12px; justify-content: flex-end; }
+.diary-write--expression .diary-write__page--right { height: var(--book-height); }
+.diary-write--expression .fairy-write__context { margin: 0 0 8px; }
+.diary-write--expression #expr-box { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.diary-write--expression .fairy-write__expression-options { flex: 1; min-height: 80px; }
+.diary-write--expression #expr-box > .row,
+.diary-write--expression .fairy-write__expression-original { flex-shrink: 0; }
+.diary-write--expression .diary-write__actions { margin-top: 8px; }
+.diary-write--expression .fairy-write__chapter-actions { margin-top: 8px; flex-shrink: 0; }
+.diary-write__dialog-layer { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; padding: 24px; background: #51422a66; }
+.diary-write__dialog-layer .confirm { width: min(640px, 100%); max-height: 85vh; overflow-y: auto; padding: 28px; border-radius: 24px; background: #fff9eb; box-shadow: 0 12px 32px #51422a44; font-size: var(--font-description); }
+.diary-write__dialog-layer .ask { margin-top: 0; font-size: var(--font-body); }
+@media (prefers-reduced-motion: reduce) {
+    .diary-write--spread .diary-write__book { transition: none; }
+}
+@media (max-height: 600px) {
+    .diary-write--first .diary-write__composer { margin-top: 24px; }
+    .diary-write__result-scroll { max-height: 150px; }
+    .diary-write__bubble { display: none; }
+}
+
+
+/* 안내 + 문장 (#shown 이 있을 때: 표현을 고른 뒤 '잘했어요!' · 검사에서 되묻는 문장): 표현 고르기의 '내가 쓴 문장'처럼 안내는 작게, 쓴 문장은 크게 (2026-11-20 낙준 추가) */
+.diary-write__notice:has(#shown) #msg { font-size: var(--font-description); }
+.diary-write__notice #shown { margin: 0; font-size: var(--font-correction); line-height: 1.5; overflow-wrap: anywhere; }
+
+/* 쪽 높이 고정 + 가운데 칸만 스크롤 (2026-11-23 낙준 추가).
+   책 쪽 높이를 책 높이(--book-height)로 고정해서, 주제 · 교정 설명 · 안내가 길어져도 책 · 화면이 늘어나지 않게 한다 (화면 키우기 배율도 흔들리지 않는다).
+   오른쪽 쪽 = 위(장 표시 · 내가 쓴 글 보기) / 가운데 칸 .diary-write__middle(주제 · 결과 · 안내 · 표현 고르기, 넘치면 이 칸만 스크롤) / 아래(입력칸 · 확인하기 · 장 이동).
+   가운데 칸은 내용이 적으면 지금과 같은 높이(늘어나지 않음), 넘칠 때만 줄어들며 스크롤한다. 안쪽의 작은 스크롤(결과 · 안내 · 주제)은 풀어서 스크롤이 겹치지 않게 했다 */
+.diary-write__page--right,
+.diary-write--spread .diary-write__page--left { height: var(--book-height); }
+.diary-write__page > :not(.diary-write__middle):not(.diary-write__history-scroll) { flex-shrink: 0; }
+.diary-write__middle { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.diary-write__middle > * { flex-shrink: 0; }
+.diary-write__middle .diary-write__result-scroll,
+.diary-write__middle .diary-write__notice,
+.diary-write__middle .fairy-write__context-scroll { max-height: none; overflow: visible; }
+.diary-write--expression .diary-write__middle { flex: 1 1 auto; }                   /* 표현 고르기: 입력칸이 없으니 남는 높이를 다 쓴다 */
+.diary-write--spread .diary-write__page--left .diary-write__history-scroll { flex: 1 1 auto; height: auto; min-height: 0; }   /* 내가 쓴 글: 남는 높이만큼 */

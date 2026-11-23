@@ -3,7 +3,7 @@
 [글쓰기 API] 파일명: writing_api.py   (diary_pipeline 위에서 동작. 예전 시연용 app.py 에서 화면 내보내기를 뺀 것)
 
 주소 (main.py 가 app.include_router(writing_api.router) 로 붙인다)
-  GET  /question   입력칸 위 안내 질문 (일기/동화, 동화는 고른 주제 반영)
+  GET  /question   입력칸 위 안내 질문 (일기/동화, 동화는 고른 주제 반영 · chapter 2 이상이면 장 첫 문장도 이어지는 질문)
   GET  /topics     동화 주제 추천 (코드 안 목록 FAIRY_TOPICS. 화면은 DB 의 주제를 쓰는 /api/topics 를 부른다)
   POST /validate   유효성 검사만 (diary_pipeline/input_validation.py). 통과하면 route == "correction"
   POST /correct    교정 단계(diary_pipeline/nodes)를 한 단계씩 실행하고, 단계가 끝날 때마다 결과를 한 줄(NDJSON)씩 흘려보냄
@@ -112,10 +112,11 @@ DEMO_SUGGEST_POINT = "(임시 예시) 낱말 하나를 비슷한 말로 바꿔 �
 # 입력칸 위에 보여 줄 안내 질문
 # =====================================================================
 # 동화 주제 (아이가 관심 가질 만한 동물 · 사물 · 상상 속 친구).
-# 실제 화면은 DB 의 fairy_topics 표를 쓴다 (/api/topics). 이 목록은 표가 비어 있을 때 대신 쓰는 예비이고, 처음 표를 채운 값과 같다.
+# 실제 화면은 DB 의 fairy_topics 표를 쓴다 (/api/topics). 이 목록은 표가 비어 있을 때 대신 쓰는 예비이고,
+# 요구사항정의서 '동화주제' 시트의 주제 10개와 같다 (2026-11-19. 처음 20개에서 바꿨다).
 FAIRY_TOPICS = [
-    "고양이", "강아지", "토끼", "공룡", "용", "곰", "펭귄", "고래", "다람쥐", "도깨비",
-    "로봇", "우주선", "마법 지팡이", "보물 상자", "말하는 나무", "구름", "달", "무지개", "눈사람", "장난감 기차",
+    "토끼", "마법 가방", "구름 마을", "말하는 나무", "작은 용",
+    "비밀 문", "바닷속 학교", "길 잃은 별", "장난감 로봇", "하늘을 나는 신발",
 ]
 FAIRY_FIRST = [                       # {t} 자리에 고른 주제가 들어간다
     "「{t}」 이야기는 어떻게 시작될까요? 첫 문장을 적어보세요.",
@@ -124,6 +125,10 @@ FAIRY_FIRST = [                       # {t} 자리에 고른 주제가 들어간
 FAIRY_FIRST_FREE = [                  # 주제 없이 스스로 정해서 쓸 때
     "상상한 이야기의 첫 문장을 적어보세요. 누가 나오나요?",
     "옛날 옛날에 누가 살았을까요? 첫 문장을 적어보세요.",
+]
+FAIRY_CHAPTER_START = [               # 2장부터 장의 첫 문장 (앞 장에서 이어지는 이야기). {n} 자리에 장 번호
+    "{n}장이 시작돼요. 앞 장에 이어서 어떤 일이 벌어질까요?",
+    "{n}장에서는 주인공에게 무슨 일이 생길까요?",
 ]
 FAIRY_NEXT = [
     "그다음에는 어떤 일이 벌어졌나요?",
@@ -145,11 +150,14 @@ def get_topics(exclude=(), others: int = 3, pool=None) -> Dict[str, Any]:
     return {"pick": picked[0], "others": picked[1:]}
 
 
-def get_question(passed_count: int = 0, kind: str = "diary", topic: str = "") -> str:
+def get_question(passed_count: int = 0, kind: str = "diary", topic: str = "", chapter: int = 1) -> str:
     """지금까지 통과한 문장 수에 맞는 질문. 0이면 OPENING_FIRST 중 무작위, 1 이상이면 OPENING_NEXT를 차례로.
-    동화(kind="fairy")는 일기와 다른 문구를 쓰고, 고른 주제(topic)가 있으면 첫 질문에 넣는다."""
+    동화(kind="fairy")는 일기와 다른 문구를 쓰고, 고른 주제(topic)가 있으면 첫 질문에 넣는다.
+    동화 2장부터(chapter >= 2)는 장의 첫 문장이어도 '이야기는 어떻게 시작될까요?' 대신 이어지는 질문(FAIRY_CHAPTER_START)을 쓴다."""
     if kind == "fairy":
         topic = " ".join(str(topic or "").split())[:20]
+        if passed_count <= 0 and (chapter or 1) >= 2:
+            return random.choice(FAIRY_CHAPTER_START).format(n=chapter)
         if passed_count <= 0:
             return random.choice(FAIRY_FIRST).format(t=topic) if topic else random.choice(FAIRY_FIRST_FREE)
         return FAIRY_NEXT[(passed_count - 1) % len(FAIRY_NEXT)]
@@ -391,8 +399,8 @@ else:
     router = APIRouter()                                      # main.py 가 app.include_router(router) 로 붙인다
 
     @router.get("/question")
-    def question(passed: int = 0, kind: str = "diary", topic: str = ""):
-        return {"question": get_question(passed, kind, topic)}
+    def question(passed: int = 0, kind: str = "diary", topic: str = "", chapter: int = 1):
+        return {"question": get_question(passed, kind, topic, chapter)}
 
     @router.post("/suggest")                                     # 동화 표현 추천 (임시): {"sentence": "..."} → {"options": [...]}
     def suggest(payload: dict):

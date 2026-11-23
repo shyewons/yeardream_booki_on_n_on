@@ -136,7 +136,7 @@ TOPIC_CHANGE_MAX_SENTENCES = 0   # 동화 주제를 바꿀 수 있는 때: 이�
 
 
 def create_book(user_id, kind, title, fairy_topic_id=None):
-    """책을 만든다. 동화는 고른 주제 번호(fairy_topic_id)를 함께 받는다: None 이면 자유 주제(내가 정할래요).
+    """책을 만든다. 동화는 고른 주제 번호(fairy_topic_id)를 함께 받는다: None 이면 자유 주제(내가 정할래요. 책에는 자유 주제 번호를 적는다).
     일기는 주제를 쓰지 않는다 (보내도 NULL)."""
     if kind not in KINDS:
         raise BadRequest("일기와 동화 중에서 골라 주세요.")
@@ -154,7 +154,8 @@ def create_book(user_id, kind, title, fairy_topic_id=None):
             """INSERT INTO books (user_id, kind, title, cover, visibility, created_at, fairy_topic_id)
                VALUES (:uid, :k, :t, :c, 'stats', :now, :tp)""",
             {"uid": user_id, "k": kind, "t": title, "c": cover, "now": _now_str(), "tp": topic})
-        return {"id": bid, "kind": kind, "title": title, "cover": cover, "fairy_topic_id": topic}
+        return {"id": bid, "kind": kind, "title": title, "cover": cover,
+                "fairy_topic_id": topic if topic != _free_topic_id(tx) else None}   # 화면에는 자유 주제를 None 으로
 
     return db.run_in_transaction(work)
 
@@ -166,15 +167,18 @@ _VISIBLE = "(EXISTS (SELECT 1 FROM sentences s2 WHERE s2.entry_id = e.id AND s2.
 
 # ── 책 안의 글 목록 (일기: 날짜별, 최신 날짜부터 / 동화: 장 목록, 1장부터) ─────────────
 def list_entries(user_id, book_id, page=1, size=None):
-    """책이 없거나 내 책이 아니면 None. 동화는 장 목록(story_chapters)을 돌려준다 (쪽 나누기 없음, 최대 10장)."""
+    """책이 없거나 내 책이 아니면 None. 동화는 장 목록을 돌려준다: items 는 이 쪽의 장(1장부터 STORY_CHAPTERS_PER_PAGE 개씩),
+    story 는 이야기 전체 정보(_story: 모든 장 · 보상 진행 · 끝내기)."""
     book = get_book(user_id, book_id)
     if book is None:
         return None
     if book["kind"] == "fairy":
         story = _story(db, book_id)
-        items = [c for c in story["chapters"] if c["visible"]]
+        shown = [c for c in story["chapters"] if c["visible"]]
+        size = rules.STORY_CHAPTERS_PER_PAGE
+        items = shown[(page - 1) * size: page * size]
         return {"book": book, "items": items, "writing": None, "story": story, "rules": rules.public(),
-                **_meta(len(items), 1, max(1, len(items)))}
+                **_meta(len(shown), page, size)}
     size = _size(size, PAGE_SIZE_ENTRIES)
     total = db.query(f"SELECT COUNT(*) AS n FROM entries e WHERE e.book_id = :bid AND {_VISIBLE}", {"bid": book_id})[0]["n"]
     rows = db.query(
@@ -197,7 +201,50 @@ def list_entries(user_id, book_id, page=1, size=None):
             WHERE e.book_id = :bid AND e.status = 'writing' AND """ + _VISIBLE + """
             ORDER BY e.diary_date DESC, e.id DESC LIMIT 1""", {"bid": book_id})
     writing = {"id": w[0]["id"], "date": w[0]["diary_date"]} if w else None
-    return {"book": book, "items": items, "writing": writing, **_meta(total, page, size)}
+    # 오늘 일기(하루 = 글 하나): 목록 화면의 '새 일기 쓰기 / 오늘 일기 이어서 쓰기 / 오늘 일기 고쳐 쓰기' 문구용. 없으면 None
+    t = db.query(f"""SELECT e.id, e.status FROM entries e WHERE e.book_id = :bid AND e.diary_date = :d AND {_VISIBLE}""",
+                 {"bid": book_id, "d": today_kst().isoformat()})
+    today = {"id": t[0]["id"], "status": t[0]["status"]} if t else None
+    return {"book": book, "items": items, "writing": writing, "today": today, **_meta(total, page, size)}
+
+
+# ── 책 출력 (책 한 권을 처음부터 끝까지, 책 보기 · PDF 출력 화면용) ─────────────────────
+def get_book_print(user_id, book_id):
+    """책 한 권의 보이는 글과 문장을 한 번에 돌려준다. 책이 없거나 내 책이 아니면 None.
+    {book, owner, topic, parts: [{id, label, date, chapter_no, display_no, sentences: [문장]}], first_at, last_at}
+      parts  동화는 문장이 있는 장을 1장부터 (label '1장', 화면 번호 display_no), 일기는 문장이 있는 날을 오래된 날부터 (label 은 화면이 날짜로 만든다)
+      문장은 보이는 줄(seq IS NOT NULL)만, 고친 문장(revised)이 있으면 그것, 없으면 원문
+      topic  동화 주제 {title, prompt, opening} (자유 주제 · 일기면 None)
+    쪽 나누기는 화면이 한다 (글자 크기 · 쪽 크기에 따라 달라지므로)."""
+    book = get_book(user_id, book_id)
+    if book is None:
+        return None
+    rows = db.query(
+        """SELECT s.entry_id, COALESCE(s.revised, s.original) AS text, s.written_at
+             FROM sentences s JOIN entries e ON e.id = s.entry_id
+            WHERE e.book_id = :bid AND s.seq IS NOT NULL
+            ORDER BY s.entry_id, s.seq""", {"bid": book_id})
+    by_entry = {}
+    for r in rows:
+        if r["text"]:
+            by_entry.setdefault(r["entry_id"], []).append(r["text"])
+    written = [r["written_at"] for r in rows if r["written_at"]]
+    parts = []
+    if book["kind"] == "fairy":
+        for c in _story(db, book_id)["chapters"]:
+            if c["display_no"] is not None and by_entry.get(c["id"]):
+                parts.append({"id": c["id"], "label": f"{c['display_no']}장", "date": None,
+                              "chapter_no": c["chapter_no"], "display_no": c["display_no"], "sentences": by_entry[c["id"]]})
+    else:
+        days = db.query("SELECT e.id, e.diary_date FROM entries e WHERE e.book_id = :bid ORDER BY e.diary_date, e.id", {"bid": book_id})
+        for d in days:
+            if by_entry.get(d["id"]):
+                parts.append({"id": d["id"], "label": None, "date": d["diary_date"], "chapter_no": None, "display_no": None,
+                              "sentences": by_entry[d["id"]]})
+    topic = _book_topic(db, book_id) if book["kind"] == "fairy" else None
+    return {"book": book, "owner": current_nickname(),
+            "topic": {"title": topic["title"], "prompt": topic["prompt"], "opening": topic["opening"]} if topic else None,
+            "parts": parts, "first_at": min(written) if written else None, "last_at": max(written) if written else None}
 
 
 # ── 글 하나 (문장 + 교정 항목까지) ───────────────────────────────────────────
@@ -258,7 +305,7 @@ def get_entry(user_id, entry_id):
         "correction_mode": s["correction_mode"],
         "expression_choice": _json(s["expression_choice"]),
         "written_at": s["written_at"],
-        "fairy_topic_id": s["fairy_topic_id"],             # 이 문장을 쓸 때 고른 동화 주제 (일기 · 자유 주제는 None)
+        "fairy_topic_id": s["fairy_topic_id"],             # 이 문장을 쓸 때 고른 동화 주제 (일기는 None, 자유 주제는 자유 주제 줄 번호)
         "corrections": by_sentence.get(s["id"], []),
     } for s in sents]
 
@@ -280,8 +327,8 @@ def get_entry(user_id, entry_id):
                   "draft_mode": e["draft_mode"], "draft_seq": e["draft_seq"],     # 쓰던 문장이 어느 자리의 것인지 (save_draft)
                   "saved_at": e["saved_at"], "edited_at": e["edited_at"], "created_at": e["created_at"],
                   "day_done_at": e["day_done_at"],                                  # 일기 하루치를 처음 채운 시각 (없으면 None)
-                  "topic": topic,                                                   # 동화: 책의 주제 {id, title, prompt} 또는 None(자유 주제)
-                  "topic_changeable": changeable,                                   # 동화: 지금 주제를 바꿀 수 있는지
+                  "topic": topic,                                                   # 동화: 책의 주제 {id, title, prompt, opening} 또는 None(자유 주제)
+                  "topic_changeable": changeable,                                   # 동화: 지금 주제를 바꿀 수 있는지 (책 전체 문장 수로 본다. 화면은 이 값을 따른다)
                   "topic_change_max": TOPIC_CHANGE_MAX_SENTENCES,                   # 동화: 문장이 몇 개까지일 때 바꿀 수 있는지 (None = 언제나)
                   "chapter_no": chapter_no,                                         # 동화: DB 장 번호 (글을 열 때 쓴다. 일기는 None)
                   "display_no": display_no},                                        # 동화: 화면에 보이는 장 번호 (빈 장을 건너뛰고 센다)
@@ -364,7 +411,7 @@ def open_entry(user_id, book_id, day=None, chapter=None, new_chapter=False):
     일기는 날짜(기본: 오늘, 한국 시간)로 하루에 하나.
     동화는 장(chapter)마다 글 하나다 (아래 '동화 장' 참고):
       chapter=3         3장을 연다 (없는 장이면 400. 장이 하나도 없을 때의 1장 · 문장이 있는 마지막 장의 바로 다음 장은 만든다)
-      new_chapter=True  다음 장을 만든다 (마지막 장이 비어 있으면 그 장을 그대로 연다. 끝낸 이야기 · 10장이 넘으면 400)
+      new_chapter=True  다음 장을 만든다 (마지막 장이 비어 있으면 그 장을 그대로 연다. 끝낸 이야기 · STORY_MAX_CHAPTERS(100장)가 넘으면 400)
       둘 다 없음         마지막 장을 연다 (없으면 1장을 만든다)
     돌려주는 값은 get_entry 와 같은 모양에 "created"(방금 만들었는지)를 더한 것이다."""
     book = get_book(user_id, book_id)
@@ -414,14 +461,14 @@ def open_entry(user_id, book_id, day=None, chapter=None, new_chapter=False):
 
 
 # ── 동화 장 ───────────────────────────────────────────────────────────────────
-# 동화 책 하나에 이야기 하나, 이야기는 장(1장 ~ 10장)으로 나뉜다. 장 하나 = 글(entries) 하나 (entries.chapter_no).
+# 동화 책 하나에 이야기 하나, 이야기는 장(1장 ~ reward_rules.STORY_MAX_CHAPTERS, 지금 100장)으로 나뉜다. 장 하나 = 글(entries) 하나 (entries.chapter_no).
 #   화면: 한 장 = 한 쪽. 장 첫머리와 새 장 쓰기 화면에 앞 장의 마지막 문장을 살짝 보여 준다 (_prev_tail)
 #   새 장: 목록의 '새 장 쓰기'. 마지막 장을 다른 날 이어 쓸 때는 화면이 '이어 쓸지 · 새 장을 쓸지' 묻는다
 #   빈 장: 문장을 다 지운 장은 목록에서 숨기고 번호는 그대로 둔다 (이미 받은 보상과 번호가 어긋나지 않게)
 #   끝내기: 3문장 이상 쓴 장이 STORY_FINISH_MIN_CHAPTERS 개 이상이면 '이야기 끝내기'(books.finished_at).
 #           끝낸 이야기는 다시쓰기(고쳐 쓰기)만 된다: 새 장 · 새 문장 · 위에 넣기 · 지우기 · 순서 바꾸기는 400
-#   끝낼지 묻기: 3·6·9장째를 채웠을 때 한 번씩 (아이가 '다음에 이어 쓸래요'를 고르면 books.finish_asked 에 그 구간을 적는다)
-#           10장은 채운 뒤 나갈 때마다 묻는다. 묻는 판단은 화면이 story 정보로 한다 (writer.js)
+#   끝낼지 묻기: STORY_FINISH_ASK_AT 장째를 채웠을 때 한 번씩 (지금은 비워 둬서 묻지 않는다) (아이가 '다음에 이어 쓸래요'를 고르면 books.finish_asked 에 그 구간을 적는다)
+#           마지막 장(100장)은 채운 뒤 나갈 때마다 묻는다. 묻는 판단은 화면이 story 정보로 한다 (writer.js)
 # 장 번호가 없는 예전 동화 글(chapter_no NULL)은 1장으로 본다.
 FINISHED_MSG = "끝낸 이야기는 고쳐 쓰기만 할 수 있어요."
 
@@ -476,7 +523,7 @@ def _story(q, book_id):
         "can_finish": not finished and qualified >= rules.STORY_FINISH_MIN_CHAPTERS,
         "last_chapter": last["chapter_no"] if last else 0,                   # 마지막 장의 DB 번호 (이어서 쓰기)
         "last_display": last["display_no"] if last else 0,                   # 마지막 장의 화면 번호
-        "written_chapters": written_chapters,                                # 문장이 있는 장 수 (10장 제한에 센다)
+        "written_chapters": written_chapters,                                # 문장이 있는 장 수 (장 수 제한 STORY_MAX_CHAPTERS 에 센다)
         # 새 장 쓰기: 끝내지 않았고, 문장이 있는 장이 10개 미만이거나 마지막 장이 비어 있을 때 (비어 있으면 그 장을 다시 연다)
         "can_new_chapter": not finished and (last is None or last["sentence_count"] == 0 or written_chapters < rules.STORY_MAX_CHAPTERS),
         "max_chapters": rules.STORY_MAX_CHAPTERS,
@@ -578,7 +625,7 @@ def finish_story(user_id, book_id):
 
 
 def finish_later(user_id, book_id, upto):
-    """끝낼지 물었을 때 '다음에 이어 쓸래요': 그 구간(3·6·9)을 적어 두어 다시 묻지 않는다. 책이 없거나 내 동화 책이 아니면 None."""
+    """끝낼지 물었을 때 '다음에 이어 쓸래요': 그 구간(reward_rules.STORY_FINISH_ASK_AT, 지금은 비어 있어 쓰이지 않음)을 적어 두어 다시 묻지 않는다. 책이 없거나 내 동화 책이 아니면 None."""
     upto = _opt_int(upto)
     if upto not in rules.STORY_FINISH_ASK_AT:
         raise BadRequest("묻는 구간이 맞지 않아요.")
@@ -661,8 +708,8 @@ def _clean_text(v, name):
 
 
 # ── 동화 주제 · 일기 하루치 ─────────────────────────────────────────────────
-# 동화 주제는 책을 만들 때 고른다 (books.fairy_topic_id, NULL = 자유 주제 '내가 정할래요').
-# 바꾸기는 TOPIC_CHANGE_MAX_SENTENCES 까지만 된다 (지금은 첫 문장을 쓰기 전에만. set_book_topic).
+# 동화 주제는 책을 만들 때 고른다 (books.fairy_topic_id. 자유 주제 '내가 정할래요'는 자유 주제 줄의 번호, 아래 FREE_TOPIC_TITLE).
+# 바꾸기는 TOPIC_CHANGE_MAX_SENTENCES 까지만 된다 (지금은 책의 첫 문장을 쓰기 전에만. 장마다가 아니라 책 전체 문장 수로 본다. set_book_topic).
 # 문장마다에도 남긴다 (sentences.fairy_topic_id). 바꾸기를 넓혀도 문장별로 그때의 주제가 남아,
 # 보상 쪽에서 '마지막 주제'든 '주제별 문장 수'든 나중에 정해 셀 수 있다.
 #   새 문장 · 위에 넣은 문장   책의 지금 주제 (서버가 넣는다. 화면이 보낸 값은 쓰지 않는다)
@@ -670,16 +717,33 @@ def _clean_text(v, name):
 # 일기 하루치는 보이는 문장이 reward_rules.DIARY_DAY_SENTENCES 개가 되는 순간 entries.day_done_at 에 한 번 적는다.
 #   문장은 검사 · 교정을 통과해야 저장되므로 '검사를 통과한 문장'만 센다 (임시저장 draft_text 는 세지 않는다).
 
+# 자유 주제('내가 정할래요')도 fairy_topics 의 한 줄이다: 제목 FREE_TOPIC_TITLE, is_active = 0 (추천에는 안 나온다).
+# 책 · 문장에는 그 줄의 번호를 적어 '주제 없음(NULL)'과 구분한다 (보상 세트를 주제에 이을 때 자유 주제도 이을 수 있게).
+# 그 줄이 없으면(표를 새로 만든 직후 등) 예전처럼 NULL 로 저장한다. NULL 도 자유 주제로 본다. 화면에는 자유 주제를 늘 None 으로 보낸다.
+# 제목은 띄어쓰기를 빼고 비교한다 ('자유 주제' · '자유주제' 모두 같은 줄).
+FREE_TOPIC_TITLE = "자유 주제"
+_FREE_KEY = FREE_TOPIC_TITLE.replace(" ", "")
+_FREE_SQL = "REPLACE(t.title, ' ', '') = :free"       # fairy_topics 를 t 로 부를 때 '자유 주제 줄인지'
+
+
 def list_topics():
-    """켜져 있는 동화 주제 [{id, title, prompt}] (fairy_topics.is_active = 1). 하나도 없으면 빈 목록.
-    prompt 는 주제 카드에 보이는 이야기 시작 문장 (없으면 None)."""
-    return db.query("SELECT id, title, prompt FROM fairy_topics WHERE is_active = 1 ORDER BY id")
+    """켜져 있는 동화 주제 [{id, title, prompt, opening}] (fairy_topics.is_active = 1). 하나도 없으면 빈 목록.
+    prompt 는 주제 카드에 보이는 쓰기 안내 (예: 토끼가 주인공인 동화를 만들어 봐!),
+    opening 은 글쓰기 첫 장에 보이는 시작 상황 (예: 토끼가 숲에서 … 누구의 발자국일까?). 없으면 None."""
+    return db.query(f"SELECT t.id, t.title, t.prompt, t.opening FROM fairy_topics t WHERE t.is_active = 1 AND NOT ({_FREE_SQL}) ORDER BY t.id",
+                    {"free": _FREE_KEY})
+
+
+def _free_topic_id(q):
+    """자유 주제 줄의 번호. 없으면 None. q 는 db 또는 트랜잭션(tx)."""
+    rows = q.query(f"SELECT t.id FROM fairy_topics t WHERE {_FREE_SQL} ORDER BY t.id LIMIT 1", {"free": _FREE_KEY})
+    return rows[0]["id"] if rows else None
 
 
 def _book_topic(q, book_id):
-    """책의 주제 {id, title, prompt}. 자유 주제 · 일기면 None. q 는 db 또는 트랜잭션(tx)."""
-    rows = q.query("""SELECT t.id, t.title, t.prompt FROM books b JOIN fairy_topics t ON t.id = b.fairy_topic_id
-                       WHERE b.id = :bid""", {"bid": book_id})
+    """책의 주제 {id, title, prompt, opening}. 자유 주제 · 일기면 None. q 는 db 또는 트랜잭션(tx)."""
+    rows = q.query(f"""SELECT t.id, t.title, t.prompt, t.opening FROM books b JOIN fairy_topics t ON t.id = b.fairy_topic_id
+                        WHERE b.id = :bid AND NOT ({_FREE_SQL})""", {"bid": book_id, "free": _FREE_KEY})
     return rows[0] if rows else None
 
 
@@ -715,10 +779,17 @@ def _entry_info(tx, entry_id):
 
 
 def _topic_arg(tx, kind, v):
-    """화면이 보낸 주제 번호를 확인한다. 일기거나 비어 있으면 None. 없는 주제 · 꺼진 주제면 BadRequest (→ 400)."""
-    if kind != "fairy" or v in (None, ""):
+    """화면이 보낸 주제 번호를 확인해 책에 적을 번호를 돌려준다. 일기면 None.
+    동화에서 비어 있으면(내가 정할래요) 자유 주제 번호 (_free_topic_id, 그 줄이 없으면 None).
+    없는 주제 · 꺼진 주제면 BadRequest (→ 400). 자유 주제 번호는 꺼져 있어도 받는다."""
+    if kind != "fairy":
         return None
+    free = _free_topic_id(tx)
+    if v in (None, ""):
+        return free
     tid = _opt_int(v)
+    if tid is not None and tid == free:
+        return tid
     if tid is None or not tx.query("SELECT id FROM fairy_topics WHERE id = :t AND is_active = 1", {"t": tid}):
         raise BadRequest("고른 주제를 찾을 수 없어요. 주제를 다시 골라 주세요.")
     return tid

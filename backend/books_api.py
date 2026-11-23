@@ -5,12 +5,13 @@
   GET /api/entries/{entry_id}                     글 하나 (문장 + 교정 항목)
   GET /api/books/{book_id}/diary/{YYYY-MM-DD}     일기를 날짜로 찾기 (하루 = 글 하나)
   GET /api/topics?exclude=고양이,곰&others=2      동화 주제 추천 (fairy_topics 표에서 고른다)
-                                                  → {"pick", "others", "ids": {제목: 번호}, "items": [{id, title, prompt}, ...]} (items 는 pick 부터)
+                                                  → {"pick", "others", "ids": {제목: 번호}, "items": [{id, title, prompt, opening}, ...]} (items 는 pick 부터)
+                                                  prompt = 쓰기 안내(주제 카드), opening = 시작 상황(글쓰기 첫 장). 자유 주제 줄은 추천에 나오지 않는다
 
   쓰기
   POST /api/books                                 책 만들기('새로운 이야기')  body: {"kind": "diary"|"fairy", "title": "몽실", "fairy_topic_id": 3|null}
                                                   동화는 고른 주제 번호를 함께 보낸다 (null = 자유 주제 '내가 정할래요')
-  PUT  /api/books/{book_id}/topic                 동화 주제 바꾸기 body: {"fairy_topic_id": 3|null}. 첫 문장을 쓰기 전에만 (books_repo.TOPIC_CHANGE_MAX_SENTENCES)
+  PUT  /api/books/{book_id}/topic                 동화 주제 바꾸기 body: {"fairy_topic_id": 3|null}. 책의 첫 문장을 쓰기 전에만 (books_repo.TOPIC_CHANGE_MAX_SENTENCES)
   POST /api/books/{book_id}/entries               글 열기/만들기  body: {"date": "2026-11-12"} (일기, 생략하면 오늘) → 글 + 쓴 문장
                                                   동화는 장: {"chapter": 3} 그 장 / {"new_chapter": true} 다음 장 / {} 마지막 장
   PUT  /api/entries/{entry_id}/sentences/{seq}    문장 저장(임시저장). 같은 seq 면 덮어쓰기, 끝 다음 순서면 새로 붙이기
@@ -22,7 +23,7 @@
   PUT  /api/entries/{entry_id}/draft              쓰던 문장 임시저장  body: {"text": "...", "mode": "new|edit|insert", "seq": 3}  (글자가 비면 지운다)
   POST /api/entries/{entry_id}/complete           '이야기 저장하기' (상태 done). 일기용
   POST /api/books/{book_id}/finish                동화 '이야기 끝내기' (3문장 이상 쓴 장이 3개 이상일 때. 모든 장 done, 끝낸 뒤에는 다시쓰기만)
-  POST /api/books/{book_id}/finish-later          동화: 끝낼지 물었을 때 '다음에 이어 쓸래요' body: {"upto": 3|6|9} (그 구간은 다시 묻지 않는다)
+  POST /api/books/{book_id}/finish-later          동화: 끝낼지 물었을 때 '다음에 이어 쓸래요' body: {"upto": N} (그 구간은 다시 묻지 않는다. N 은 reward_rules.STORY_FINISH_ASK_AT 중 하나, 지금은 비어 있음)
 
 DB에 닿지 못하면 503, 책이나 글이 없거나 내 것이 아니면 404, 요청 내용이 맞지 않으면 400,
 X-User-Token 헤더의 토큰이 맞지 않으면 401, 화면이 아는 글과 DB 의 글이 달라졌으면 409 를 돌려준다 (auth.py).
@@ -41,15 +42,16 @@ router = APIRouter(prefix="/api")
 
 
 def _guard(fn, *args):
-    """DB 쪽 문제(설정 없음, 연결 실패, 더미 사용자 없음)를 503 으로 바꿔 준다. 문제는 로그(error / action)에도 남긴다."""
+    """DB 쪽 문제(설정 없음, 연결 실패, SQL 실패, 더미 사용자 없음)를 HTTP 오류로 바꿔 준다. 문제는 로그(error / action)에도 남긴다.
+    SQL 실패(db.DBError)는 연결 · 잠깐 막힘이면 503, DB 와 코드가 안 맞거나 그 밖이면 500. 화면 문구에는 짧은 오류 코드(DB-1054 등)만 붙고 원문은 로그에 남는다."""
     try:
         return fn(*args)
     except auth.InvalidToken as e:                       # 토큰이 틀림 → 화면이 01번 별명 화면으로 보낸다
         devlog.write("action", "rejected", {"call": getattr(fn, "__name__", ""), "reason": "invalid_token"})
         raise HTTPException(status_code=401, detail=str(e))
     except (db.DBNotConfigured, db.DBUnavailable, repo.NoUser) as e:
-        devlog.error("db", e, {"call": getattr(fn, "__name__", "")})
-        raise HTTPException(status_code=503, detail=str(e))
+        devlog.error("db", e, {"call": getattr(fn, "__name__", ""), "code": getattr(e, "code", None), "raw": getattr(e, "raw", None)})
+        raise HTTPException(status_code=getattr(e, "status", 503), detail=str(e))
     except repo.Stale as e:                              # 다른 탭 · 기기에서 글이 바뀜 → 화면이 다시 열라고 안내한다
         devlog.write("action", "rejected", {"call": getattr(fn, "__name__", ""), "reason": "stale"})
         raise HTTPException(status_code=409, detail=str(e))
@@ -99,6 +101,12 @@ def book_entries(book_id: int, page: int = Query(1, ge=1), size: int | None = Qu
     return _found(_guard(repo.list_entries, uid, book_id, page, size), "책")
 
 
+@router.get("/books/{book_id}/print")                              # 책 출력: 책 한 권의 보이는 글과 문장 (책 보기 · PDF 출력 화면)
+def book_print(book_id: int):
+    uid = _user()
+    return _found(_guard(repo.get_book_print, uid, book_id), "책")
+
+
 @router.get("/entries/{entry_id}")
 def entry(entry_id: int):
     uid = _user()
@@ -120,9 +128,10 @@ def topics(exclude: str = "", others: int = 3):
     rows = _guard(repo.list_topics)
     ids = {r["title"]: r["id"] for r in rows}
     prompts = {r["title"]: r["prompt"] for r in rows}
+    openings = {r["title"]: r.get("opening") for r in rows}
     pool = list(ids) or None
     r = writing_api.get_topics([x for x in exclude.split(",") if x], others=max(0, min(others, 5)), pool=pool)
-    items = [{"id": ids.get(t), "title": t, "prompt": prompts.get(t)} for t in [r["pick"]] + r["others"]]
+    items = [{"id": ids.get(t), "title": t, "prompt": prompts.get(t), "opening": openings.get(t)} for t in [r["pick"]] + r["others"]]
     return {**r, "ids": ids, "items": items}
 
 

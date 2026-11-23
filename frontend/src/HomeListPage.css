@@ -1,0 +1,123 @@
+/* 02: 태블릿 1024×768. 동물·배경은 에셋, 버튼은 common.css를 재사용한다. */
+body:has(.farm-screen) { margin: 0; background: var(--color-outside); }
+.farm-screen {
+  display: flex;
+  flex-direction: column;
+  width: 1024px;
+  max-width: 100%;
+  min-height: 768px;
+    height: 768px;
+  margin-inline: auto;
+  background: #bce580 url('./assets/backgrounds/farm-meadow.png') center / cover no-repeat;
+}
+.farm-screen *, .farm-screen *::before, .farm-screen *::after { box-sizing: border-box; }
+.farm-screen__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-7);
+  padding: 0 38px 16px;
+  min-height: 116px;
+}
+.farm-screen__sign-wrap { position: relative; width: 328px; flex: 0 0 auto; padding-top: 40px; }
+.farm-screen__paper {
+  position: relative;
+  isolation: isolate;
+  border: 2px solid var(--color-button-border);
+  background: linear-gradient(155deg, var(--color-cream-light), var(--color-cream), var(--color-cream-bottom));
+  box-shadow: inset 0 3px 1px #ffffffb0, 0 4px 0 #b3914940, 0 7px 12px #43583130;
+}
+.farm-screen__paper::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--texture-paper) repeat;
+  background-size: var(--texture-size);
+  opacity: var(--texture-opacity);
+  pointer-events: none;
+}
+.farm-screen__sign { margin: 0; padding: 16px 28px; border-radius: 40px; text-align: center; overflow-wrap: anywhere; }
+.farm-screen__rope {
+  position: absolute;
+  top: 0;
+  width: 9px;
+  height: 43px;
+  border-radius: 0 0 5px 5px;
+  background: repeating-linear-gradient(125deg, #e2b96c 0 3px, #f9d99b 4px 6px);
+  box-shadow: inset -2px 0 2px #9f793b42, 1px 1px 2px #5e5d3c25;
+  z-index: 2;
+}
+.farm-screen__rope::after { content: ''; position: absolute; bottom: -5px; left: -4px; width: 17px; height: 17px; border-radius: 50%; border: 4px solid #e8c681; box-shadow: 1px 2px 2px #ab7e3640; }
+.farm-screen__rope--left { left: 30px; }
+.farm-screen__rope--right { right: 30px; }
+.farm-screen__actions { width: 464px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); padding-top: 40px; }
+.farm-screen__actions .ui-button { width: 100%; min-height: 68px; }
+.farm-screen__icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  background: currentColor;
+  mask: var(--farm-icon) center / contain no-repeat;
+}
+.farm-screen__icon--records { --farm-icon: url('./assets/icons/chart-bars.svg'); }
+.farm-screen__icon--plus { --farm-icon: url('./assets/icons/plus.svg'); }
+.farm-screen__icon--chevron { --farm-icon: url('./assets/icons/chevron-right.svg'); }
+
+.farm-screen__content { position: relative; flex: 1; min-height: 0; padding: 8px 0 24px; }
+.farm-screen__books {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(2, 254px);
+  gap: 16px 32px;
+  margin: 0;
+  padding: 0 104px;
+  list-style: none;
+}
+.farm-screen__book { min-width: 0; }
+.farm-screen__book-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 0 0 6px;
+  border: 0;
+  border-radius: var(--radius-panel);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.farm-screen__animal-wrap { position: relative; display: flex; justify-content: center; align-items: flex-end; width: 100%; height: 132px; padding-bottom: 4px; }
+.farm-screen__animal-wrap::before { content: ''; position: absolute; bottom: 0; width: 140px; height: 16px; border-radius: 50%; background: #4c6a3124; box-shadow: 0 3px 8px #4c6a3124; }
+.farm-screen__animal { position: relative; display: block; max-width: 90%; max-height: 100%; object-fit: contain; }
+.farm-screen__animal--diary { height: 140px; }
+.farm-screen__animal--fairy { height: 156px; }
+.farm-screen__category { z-index: 1; margin-top: 4px; margin-bottom: -8px; padding: 2px 20px 8px; border-radius: 22px 22px 0 0; font-size: var(--font-support); font-weight: var(--weight-semibold); }
+.farm-screen__book-title { display: grid; place-items: center; width: 100%; min-height: 60px; padding: 12px 14px; border-radius: 32px; font-size: var(--font-body); font-weight: var(--weight-semibold); line-height: var(--line-control); word-break: keep-all; overflow-wrap: anywhere; }
+.farm-screen__book-button:focus-visible, .farm-screen__dot:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 5px; }
+.farm-screen__book-button:active .farm-screen__book-title { box-shadow: var(--shadow-button-pressed); }
+.farm-screen__book-title { height: 80px; min-height: 80px; padding-block: 6px; }
+.farm-screen__book-title-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.farm-screen__category { line-height: 1.3; }
+.farm-screen__pagination { margin-top: 16px; }
+.farm-screen__dots { display: flex; justify-content: center; flex-wrap: wrap; gap: 0; max-width: 760px; margin-inline: auto; }
+.farm-screen__dots { position: absolute; bottom: 16px; left: 0; right: 0; }
+.farm-screen__dot { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.farm-screen__dot::before { content: ''; width: 24px; height: 24px; border: 3px solid var(--color-primary); border-radius: 50%; background: var(--color-cream-light); }
+.farm-screen__dot[aria-current='page']::before { background: var(--color-primary); }
+.farm-screen__arrow { position: absolute; top: 46%; width: 72px; height: 72px; min-height: 72px; padding: 16px; border-radius: 50%; color: var(--color-primary); }
+.farm-screen__arrow .farm-screen__icon { width: 26px; height: 32px; }
+.farm-screen__arrow--previous { left: 24px; }
+.farm-screen__arrow--previous .farm-screen__icon { transform: rotate(180deg); }
+.farm-screen__arrow--next { right: 24px; }
+.farm-screen__arrow:disabled { background: var(--color-cream); color: #bea572; border-color: var(--color-button-border); box-shadow: inset 0 2px 2px #ffffffb3, 0 4px 8px #43583120; }
+.farm-screen__panel { width: 660px; border-radius: 44px; padding: 40px; text-align: center; }
+.farm-screen__panel h2 { margin: 0; }
+.farm-screen__panel p { margin: 0 0 24px; }
+.farm-screen__panel h2 + p { margin: 20px 0 28px; }
+.farm-screen__welcome { margin: 160px auto 0; }
+.farm-screen__welcome .ui-button { margin-top: 32px; min-width: 340px; }
+.farm-screen__overlay { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; padding: 32px; background: #172b2f66; }
+.farm-screen__overlay--loading { background: #ffffff30; }

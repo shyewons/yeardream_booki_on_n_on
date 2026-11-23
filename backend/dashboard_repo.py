@@ -4,18 +4,20 @@
   - FR-024 이번 주 일기 작성 요일
   - FR-043 다시 살펴볼 맞춤법
   - FR-044 내가 골라 쓴 표현
+  - FR-039 일기 주간 보상 진행 · 받기, 내 캐릭터가 입은 옷 (rewards_repo.py)
 대시보드 안의 화면
   - FR-021 최근 고친 문장
+  - FR-041 캐릭터 옷장 (rewards_repo.wardrobe, /api/wardrobe)
 
 문장을 고치거나 지워도 옛 줄은 지우지 않고 '빠진 줄'로 남는다 (books_repo: seq NULL, ended_at, end_reason).
 교정 항목(corrections)도 그 줄에 그대로 붙어 있어서, 맞춤법 반복 집계와 고친 문장 기록을 여기서 만든다.
-
-아직 안 만든 것: FR-041 캐릭터 옷장, FR-039 일기 주간 보상 (의상 테이블이 아직 없다)
 """
 import datetime
 
 import books_repo
 import db
+import devlog
+import rewards_repo
 
 WEEKDAYS = ("월", "화", "수", "목", "금", "토", "일")
 MAX_EXPRESSIONS = 10        # 내가 골라 쓴 표현: 최근 몇 개까지 보여 줄지
@@ -35,15 +37,17 @@ def week_diary_days(user_id, today=None):
     """FR-024 이번 주(월~일) 일기 작성 요일.
     - 날짜 기준은 아이가 일기에 고른 날짜(entries.diary_date)
     - 일기책이 여러 권이어도 합쳐서 본다. 같은 날짜는 한 번만 표시
-    - '이야기 저장하기'를 한 번이라도 누른 일기만 센다(saved_at). 저장 뒤 다시 고치는 중이어도 빠지지 않게 status 대신 saved_at 을 본다
-      (1~2문장 일기를 넣을지는 아직 미정이라 지금은 문장 수와 상관없이 넣는다)"""
+    - 하루치(3문장)를 채운 일기만 센다 (entries.day_done_at, books_repo._mark_day_done). 일기 주간 보상(rewards_repo)과 같은 기준
+      (2026-11-19: 예전에는 '이야기 저장하기'를 누른 일기(saved_at)를 셌는데, 보상은 3문장 기준이라 한 화면에서 숫자가 달라 보여서 맞췄다.
+       저장 버튼을 깜빡해도 3문장을 채웠으면 쓴 날로 본다. 1~2문장만 쓴 날은 넣지 않는다.
+       지난 날짜 일기는 날짜 + 3일 안에 채운 것만 day_done_at 이 적힌다 (reward_rules.DIARY_LATE_DAYS))"""
     monday, sunday = _week_of(today or books_repo.today_kst())
     rows = db.query(
         """SELECT DISTINCT e.diary_date
              FROM entries e
              JOIN books b ON b.id = e.book_id
             WHERE b.user_id = :uid AND b.kind = 'diary'
-              AND e.saved_at IS NOT NULL
+              AND e.day_done_at IS NOT NULL
               AND e.diary_date BETWEEN :mon AND :sun""",
         {"uid": user_id, "mon": monday, "sun": sunday},
     )
@@ -151,11 +155,23 @@ def recent_fixes(user_id, limit=MAX_RECENT_FIXES):
     return {"items": items}
 
 
+def _optional(fn, user_id):
+    """보상 쪽이 실패해도 대시보드의 나머지는 보이게 한다. 실패하면 None (화면은 그 칸만 '불러오지 못했어요')."""
+    try:
+        return fn(user_id)
+    except Exception as e:                  # 보상 표 · 데이터 문제는 로그로만 남긴다
+        devlog.error("dashboard", e, {"call": fn.__name__})
+        return None
+
+
 def dashboard(user_id):
-    """대시보드 메인 한 번에 (FR-042)."""
+    """대시보드 메인 한 번에 (FR-042).
+    diary_reward · character 는 실패하면 None 이다 (rewards_repo.diary_reward, rewards_repo.character)."""
     return {
         "owner": books_repo.current_nickname(),
         "week": week_diary_days(user_id),
         "spelling": spelling_to_review(user_id),
         "expressions": picked_expressions(user_id),
+        "diary_reward": _optional(rewards_repo.diary_reward, user_id),
+        "character": _optional(rewards_repo.character, user_id),
     }

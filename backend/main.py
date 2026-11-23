@@ -31,6 +31,7 @@ import auth
 from auth import UserTokenMiddleware
 from books_api import router as books_router
 from dashboard_api import router as dashboard_router
+from rewards_api import router as rewards_router
 from users_api import router as users_router
 import books_repo
 import devlog
@@ -80,5 +81,6 @@ def health():
 app.include_router(users_router)          # /api/users  (별명 만들기 · 토큰 확인)
 app.include_router(books_router)          # /api/...
 app.include_router(dashboard_router)      # /api/dashboard  (대시보드 메인)
+app.include_router(rewards_router)        # /api/rewards · /api/wardrobe  (의상 보상 · 옷장)
 app.include_router(writing_router)        # /question /topics /validate /correct /suggest
 app.include_router(devlog.router)         # /log/ui
