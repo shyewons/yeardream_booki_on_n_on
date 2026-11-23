@@ -61,11 +61,12 @@ CREATE DATABASE app_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 | 순서 | 파일 | 하는 일 |
 |---|---|---|
 | 1 | `schema.sql` | 사용자 · 책 · 글 · 문장 · 교정 · 동화 주제 표를 만들고 동화 주제 10개를 넣습니다 |
-| 2 | `schema_rewards.sql` | 보상 표(옷 · 받은 기록 · 가진 옷 · 입은 옷)를 만듭니다 |
+| 2 | `schema_rewards.sql` | 보상 표(옷 · 받은 기록 · 가진 옷 · 입은 옷)를 만듭니다. 팀 DB 의 보상 표를 코드(`rewards_repo.py`)에 맞춰 다시 적은 정의라, 길이 · 키 이름 같은 세부 조건은 팀 DB 와 조금 다를 수 있습니다 |
 | 3 | `seed_clothes.sql` | 선물로 줄 옷 43벌을 넣습니다 (마지막 줄 결과가 diary 10, fairy 33 이면 성공) |
 | (선택) | `seed_dummy.sql` | 목록 · 쪽 넘기기를 시험할 더미 사용자와 책 |
 
-> `schema.sql` 은 표를 지우고 다시 만듭니다. **이미 쓰고 있는 DB 에서는 실행하지 마세요.**
+> `schema.sql` · `schema_rewards.sql` 은 표를 지우고 다시 만듭니다. **이미 쓰고 있는 DB 에서는 실행하지 마세요** (쓴 글 · 받은 옷이 모두 지워집니다).
+> 처음부터 다시 만들 때는 보상 표가 사용자 · 책 표를 가리키고 있어서, `schema_rewards.sql` 맨 위의 `DROP TABLE` 네 줄을 먼저 실행한 뒤 1 → 2 → 3 순서로 실행합니다.
 
 ### ③ 백엔드 설정 (`backend/.env`)
 
@@ -111,7 +112,7 @@ npm run dev                         # http://localhost:5173
 진짜 교정을 보려면:
 
 1. `pip install -r requirements-models.txt` (Windows 는 먼저 `$env:PYTHONUTF8="1"`)
-2. 맞춤법 근거 검색 DB `chroma_db/` 를 `backend/` 안에 둡니다 (제출 파일에 들어 있습니다. 다른 곳이면 `.env` 의 `DIARY_DB_PATH`)
+2. 맞춤법 근거 검색 DB `backend/chroma_db/` 는 저장소에 들어 있어 따로 만들 필요가 없습니다 (다른 곳에 두면 `.env` 의 `DIARY_DB_PATH`)
 3. `.env` 에 `USE_MODELS=1`
 4. 설명 모델 크기: `EXPLAIN_LLM=small`(기본, Kanana 1.5 2.1B) 또는 `large`(Kanana 2 3B, GPU · 맥 권장)
 5. 백엔드를 다시 켭니다. **처음 켤 때 모델을 내려받느라 몇 분 걸립니다** (터미널에 `[preload] … 완료` 가 나오면 준비 끝)
@@ -174,7 +175,7 @@ npm run dev -- --host               # 터미널에 나오는 Network 주소(http
 | 설명 · 표현 추천 (large) | [kakaocorp/kanana-2-3b-instruct](https://huggingface.co/kakaocorp/kanana-2-3b-instruct) | 카카오 | [Kanana Open License](https://huggingface.co/kakaocorp/kanana-2-3b-instruct/blob/main/LICENSE) |
 | 근거 검색 임베딩 | [nlpai-lab/KURE-v1](https://huggingface.co/nlpai-lab/KURE-v1) | 고려대학교 NLP&AI 연구실 (BAAI/bge-m3 기반) | MIT |
 | 벡터 DB 만들 때 문장 나누기 | [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) | BAAI | MIT |
-| 근거 문서 (chroma_db 의 원문) | [「'한글 맞춤법', '표준어 규정' 해설」(2018)](https://korean.go.kr/kornorms/refr/refrList.do) | 국립국어원 | 원문 PDF 는 저장소에 넣지 않고 출처만 표기 |
+| 근거 문서 (chroma_db 의 원문) | [「'한글 맞춤법', '표준어 규정' 해설」(2018)](https://korean.go.kr/kornorms/refr/refrList.do) | 국립국어원 | `backend/chroma_db/` 에 해설서 문장 조각과 임베딩이 들어 있습니다 (원문 PDF 는 넣지 않음). 비영리 교육 목적으로 출처를 밝혀 사용 |
 | 형태소 분석 | [Kiwi (kiwipiepy)](https://github.com/bab2min/kiwipiepy) | bab2min | 배포처 라이선스를 따름 |
 | 글꼴 | [Paperlogy(페이퍼로지)](https://www.sandollcloud.com/free-font/21071/Paperlogy) | 이주임 · 김도균 / 피티앤 | SIL Open Font License 1.1 |
 | 그림 (배경 · 캐릭터 · 아이콘 등, `frontend/src/assets/`) | 팀 디자인 | 팀 (AI 이미지 생성 도구를 활용해 제작 · 편집) | 팀 제작물 |

@@ -41,7 +41,7 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `demo_nodes.py` | 모델 없이 돌릴 때 쓰는 임시 노드, 동화 표현 추천 임시 낱말표 |
 | `diary_pipeline/` | 유효성 검사(`input_validation.py`)와 교정 파이프라인 |
 | `devlog.py` | 개발용 로그 (아래 '로그' 참고), `POST /log/ui` |
-| `temp/schema.sql` · `temp/schema_rewards.sql` | 표 만들기 (글쓰기 쪽 + 동화 주제 / 보상 쪽) |
+| `temp/schema.sql` · `temp/schema_rewards.sql` | 표 만들기 (글쓰기 쪽 + 동화 주제 / 보상 쪽. 보상 쪽은 팀 DB 를 `rewards_repo.py` 에 맞춰 다시 적은 정의) |
 | `temp/seed_clothes.sql` · `temp/seed_dummy.sql` · `temp/db_check.py` | 선물 옷 43벌, 더미 데이터, 접속 확인 |
 
 ## 주소
