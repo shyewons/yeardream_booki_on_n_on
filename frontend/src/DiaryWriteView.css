@@ -193,3 +193,6 @@ body:has(.diary-write) { margin: 0; background: var(--color-outside); }
 .diary-write__middle .fairy-write__context-scroll { max-height: none; overflow: visible; }
 .diary-write--expression .diary-write__middle { flex: 1 1 auto; }                   /* 표현 고르기: 입력칸이 없으니 남는 높이를 다 쓴다 */
 .diary-write--spread .diary-write__page--left .diary-write__history-scroll { flex: 1 1 auto; height: auto; min-height: 0; }   /* 내가 쓴 글: 남는 높이만큼 */
+/* 문장 확인 중(교정 · 설명 쓰는 중) 상자를 위 칸(주제 · 이야기)에 붙인다. 확인이 끝난 결과 · 표현 고르기와 같은 간격이라 상자가 덜 밀려서
+   가운데 칸에 더 많이 보이고, 아래가 잘려 보이면 스크롤할 수 있다는 걸 알아차리기 쉽다 (2026-11-23 낙준) */
+.diary-write__middle .diary-write__working { margin-top: 0; }
