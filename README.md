@@ -11,16 +11,22 @@
 
 ## 화면 미리보기
 
-| 문장 쓰기 · 입력 검사 | 동화 · 다른 표현 고르기 |
+<p align="center"><img src="docs/screenshots/00-farm.jpg" width="640" alt="일기 책은 양, 동화 책은 알파카로 목장에 모여 있는 첫 화면"></p>
+<p align="center">목장: 책 한 권이 동물 한 마리 (일기는 양, 동화는 알파카). '새 책 만들기'와 '나의 기록'으로 들어갑니다</p>
+
+| 일기 · 맞춤법 교정 | 문장 쓰기 · 입력 검사 |
 |---|---|
-| <img src="docs/screenshots/01-write-guardrail.jpg" width="420" alt="쓸 수 없는 말이 표시되고 다시 쓰도록 안내하는 문장 쓰기 화면"> | <img src="docs/screenshots/02-fairy-expression.jpg" width="420" alt="내가 쓴 문장과 다른 표현 중에서 고르는 동화 쓰기 화면"> |
-| 대필 요청 · 프롬프트 무시 같은 말은 그 부분만 표시하고 다시 쓰게 합니다 | 고칠 곳이 없으면 더 생생한 표현을 제안하고, 아이가 고르거나 원래 문장을 지킵니다 |
-| **표현을 고른 뒤 이어 쓰기** | **나의 기록** |
-| <img src="docs/screenshots/03-fairy-picked.jpg" width="420" alt="고른 표현이 반영되고 다음 문장을 쓰는 화면"> | <img src="docs/screenshots/04-records.jpg" width="420" alt="이번 주 일기 · 선물 · 다시 살펴볼 맞춤법을 보여 주는 나의 기록 화면"> |
-| 고른 문장이 책에 들어가고 다음 문장을 이어 씁니다 | 이번 주 일기 · 선물 진행, 다시 살펴볼 맞춤법, 내가 골라 쓴 표현 |
+| <img src="docs/screenshots/01-diary-correction.jpg" width="420" alt="고친 곳을 표시하고 맞춤법 규정에 근거한 이유를 보여 주는 일기 쓰기 화면"> | <img src="docs/screenshots/01-write-guardrail.jpg" width="420" alt="쓸 수 없는 말이 표시되고 다시 쓰도록 안내하는 문장 쓰기 화면"> |
+| 한 문장씩 쓰면 고친 곳을 표시하고, 맞춤법 규정을 근거로 왜 고쳤는지 쉬운 말로 알려 줍니다 | 대필 요청 · 프롬프트 무시 같은 말은 그 부분만 표시하고 다시 쓰게 합니다 |
+| **동화 · 다른 표현 고르기** | **표현을 고른 뒤 이어 쓰기** |
+| <img src="docs/screenshots/02-fairy-expression.jpg" width="420" alt="내가 쓴 문장과 다른 표현 중에서 고르는 동화 쓰기 화면"> | <img src="docs/screenshots/03-fairy-picked.jpg" width="420" alt="고른 표현이 반영되고 다음 문장을 쓰는 화면"> |
+| 고칠 곳이 없으면 더 생생한 표현을 제안하고, 아이가 고르거나 원래 문장을 지킵니다 | 고른 문장이 책에 들어가고 다음 문장을 이어 씁니다 |
 | **책 출력 · 표지** | **책 출력 · 본문** |
 | <img src="docs/screenshots/05-book-cover.jpg" width="420" alt="동화책 표지와 이야기 주제 쪽"> | <img src="docs/screenshots/06-book-pages.jpg" width="420" alt="장 제목과 문장이 쪽마다 나뉜 동화책 본문"> |
 | 표지 · 주제 쪽부터 펼친 책으로 넘겨 보고, 'PDF로 저장'으로 A4 에 인쇄합니다 | 문장이 쪽 크기에 맞춰 나뉘고, 장(날짜)마다 새 쪽에서 시작합니다 |
+
+<p align="center"><img src="docs/screenshots/04-records.jpg" width="640" alt="이번 주 일기 · 선물 · 다시 살펴볼 맞춤법을 보여 주는 나의 기록 화면"></p>
+<p align="center">나의 기록: 이번 주 일기 · 선물 진행, 다시 살펴볼 맞춤법, 내가 골라 쓴 표현, 옷장</p>
 
 > 아래 '실행 순서'가 **권장 실행 방법**입니다. 우리 팀이 발표 · 시연에 쓴 환경은 [팀 시연 환경 (참고)](#팀-시연-환경-참고)에 따로 적었습니다.
 
