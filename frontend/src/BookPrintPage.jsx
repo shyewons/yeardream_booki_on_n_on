@@ -3,7 +3,7 @@
 //
 // 쪽 나누기: 쪽 상자(PAGE_W × PAGE_H, 고정 크기)에 문장을 하나씩 넣어 보고, 넘치면 그 문장부터 다음 쪽으로 보낸다.
 //   - 실제로 그려 보고 높이를 재므로 문장 길이가 제각각이어도 쪽마다 고르게 찬다. 문장 하나가 두 쪽에 걸쳐 잘리지 않는다
-//   - 장(동화) · 날짜(일기)가 바뀌면 다음 펼친 면(왼쪽 쪽)부터 시작한다. 장 이름(3장 · 날짜)은 그 장의 첫 쪽에만 쓰고, 이어지는 쪽은 제목 없이 글만 (그만큼 글이 더 들어간다)
+//   - 장(동화) · 날짜(일기)가 바뀌면 다음 쪽부터 시작한다 (왼쪽 · 오른쪽 상관없이. 빈 쪽을 끼우지 않는다, 2026-11-23). 장 이름(3장 · 날짜)은 그 장의 첫 쪽에만 쓰고, 이어지는 쪽은 제목 없이 글만 (그만큼 글이 더 들어간다)
 //   - 쪽 상자 크기가 화면 크기와 상관없이 고정이라, 어느 기기에서 열어도 같은 쪽으로 나뉜다
 // 화면: 쪽을 두 개씩 펼친 책 위에 놓고, 책의 오른쪽 · 왼쪽 끝(또는 ◀ ▶ · 키보드 ← →)으로 넘긴다
 // PDF: 'PDF로 저장' → 브라우저 인쇄 창. 같은 쪽들을 A4 가로 한 장에 하나씩, 통째로 키워서 놓는다 (줄바꿈이 화면과 같다)
@@ -44,7 +44,6 @@ function paginate(data, measure) {
 
     for (const part of data.parts) {
         const label = fairy ? part.label : fmtDate(part.date)
-        if (pages.length % 2 === 1) pages.push({ type: 'blank' })        // 새 장 · 새 날짜는 펼친 면의 왼쪽 쪽부터
         let page = { type: 'text', head: label, sentences: [] }
         setHead(page.head)
         body.replaceChildren()
@@ -62,7 +61,7 @@ function paginate(data, measure) {
         }
         pages.push(page)
     }
-    if (pages.length % 2 === 1) pages.push({ type: 'blank' })            // 마지막 펼친 면을 채운다
+    if (pages.length % 2 === 1) pages.push({ type: 'blank' })            // 화면에서 마지막 펼친 면의 오른쪽을 채운다 (인쇄에는 넣지 않는다)
     return pages
 }
 
@@ -165,7 +164,7 @@ export default function BookPrintPage({ bookId, onBack, onAuthError }) {
 
         {/* 인쇄용: 모든 쪽을 A4 한 장에 하나씩 (화면에서는 숨김) */}
         {pages && <div className="book-print__all" aria-hidden="true">
-            {pages.map((p, i) => <div className="book-print__sheet" key={i}><Page page={p} no={i + 1} data={data} /></div>)}
+            {pages.map((p, i) => p.type === 'blank' ? null : <div className="book-print__sheet" key={i}><Page page={p} no={i + 1} data={data} /></div>)}
         </div>}
     </main>
 }
