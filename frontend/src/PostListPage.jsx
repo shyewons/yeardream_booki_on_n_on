@@ -48,11 +48,13 @@ function ListPager({ page, totalPages, total, unit, onGo }) {
     </div>
 }
 
-function BookLayout({ book, onHome, finished, children, footer }) {
+// onPrint: 오른쪽 위 '책 출력하기' (책 출력 화면으로). 글을 불러오기 전 · 실패 화면에는 없다
+function BookLayout({ book, onHome, onPrint, finished, children, footer }) {
     const fairy = book?.kind === 'fairy'
     return <main className={`post-list post-list--${fairy ? 'fairy' : 'diary'}`} aria-labelledby="post-list-title">
         <header className="post-list__header">
             <button className="ui-button ui-button--secondary ui-button--small post-list__home" type="button" onClick={onHome}><Arrow reverse />목장으로</button>
+            {onPrint && <button className="ui-button ui-button--primary ui-button--small post-list__print" type="button" id="book-print" onClick={onPrint}>책 출력하기</button>}
             <div className="post-list__heading">
                 {book && <p className="post-list__category">{KIND_LABEL[book.kind] ?? book.kind}</p>}
                 <h1 className="ui-title" id="post-list-title">{book?.title || '글 목록'}</h1>
@@ -102,7 +104,7 @@ function Confirmation({ label, onCancel, busy, children }) {
     }}>{children}</dialog>
 }
 
-function StoryChapters({ data, onHome, onOpenEntry, onWrite, onAuthError, reload, onPageChange }) {
+function StoryChapters({ data, onHome, onOpenEntry, onWrite, onPrint, onAuthError, reload, onPageChange }) {
     const { book, story } = data
     const chapters = data.items
     const [ask, setAsk] = useState(null)
@@ -164,7 +166,7 @@ function StoryChapters({ data, onHome, onOpenEntry, onWrite, onAuthError, reload
         }
         setSending(false)
     }
-    return <BookLayout book={book} onHome={onHome} finished={story.finished} footer={
+    return <BookLayout book={book} onHome={onHome} onPrint={story.chapters.some((c) => c.sentence_count > 0) ? onPrint : null} finished={story.finished} footer={
         <>
             <ListPager page={data.page} totalPages={data.total_pages} total={data.total} unit="장" onGo={onPageChange} />
             {!story.finished && chapters.length > 0 && <div className="post-list__extras">
@@ -268,7 +270,7 @@ function DateFinder({ bookId, onOpenEntry, onWrite, onAuthError }) {
     </form>
 }
 
-export default function PostListPage({ bookId, bookInfo, page, onPageChange, onOpenEntry, onWrite, onHome, onAuthError }) {
+export default function PostListPage({ bookId, bookInfo, page, onPageChange, onOpenEntry, onWrite, onPrint, onHome, onAuthError }) {
     const { data, error, retry } = useLoad(`/api/books/${bookId}/entries?page=${page}`, onAuthError)
     const lastPage = data ? data.total_pages : 0
     useEffect(() => {
@@ -283,11 +285,11 @@ export default function PostListPage({ bookId, bookInfo, page, onPageChange, onO
             </div> : <p className="ui-description ui-muted" role="status">글 목록을 불러오고 있어요</p>}
         </div>
     </BookLayout>
-    if (book.kind !== 'diary') return <StoryChapters key={bookId} data={data} onHome={onHome} onOpenEntry={onOpenEntry} onWrite={onWrite} onAuthError={onAuthError} reload={retry} onPageChange={onPageChange} />
+    if (book.kind !== 'diary') return <StoryChapters key={bookId} data={data} onHome={onHome} onOpenEntry={onOpenEntry} onWrite={onWrite} onPrint={onPrint} onAuthError={onAuthError} reload={retry} onPageChange={onPageChange} />
     const today = todayKST()
     const writing = data.writing
     const writingDate = writing?.date ? String(writing.date).slice(0, 10) : null
-    return <BookLayout book={book} onHome={onHome} footer={
+    return <BookLayout book={book} onHome={onHome} onPrint={data.total ? onPrint : null} footer={
         <>
             <ListPager page={data.page} totalPages={data.total_pages} total={data.total} unit="일" onGo={onPageChange} />
             <DateFinder bookId={bookId} onOpenEntry={onOpenEntry} onWrite={onWrite} onAuthError={onAuthError} />

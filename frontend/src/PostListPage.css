@@ -159,3 +159,6 @@ button.post-list__reward-stop { padding: 0; border: none; background: none; colo
 .post-list__gift-pop::after { content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--color-primary); }
 @keyframes post-list-gift { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px) rotate(-6deg); } }
 @media (prefers-reduced-motion: reduce) { .post-list__reward-stop.is-claimable img { animation: none; } }
+
+/* 책 출력하기 버튼: 왼쪽 위 '목장으로'와 마주 보는 오른쪽 위 (2026-11-20 낙준 추가) */
+.post-list__print { position: absolute; top: 0; right: 0; }
