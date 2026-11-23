@@ -1,0 +1,9 @@
+transformers==4.57.6
+torch
+accelerate
+sentence-transformers
+openai
+pandas
+numpy
+matplotlib
+huggingface_hub
