@@ -99,7 +99,7 @@ export default function HomeListPage({ onCreateBook, onOpenBook, onOpenDashboard
                         <img className={`farm-screen__animal farm-screen__animal--${book.kind}`} src={book.kind === 'fairy' ? alpaca : sheep} alt="" />
                       </span>
                       <span className="farm-screen__category farm-screen__paper">{KIND_LABEL[book.kind] ?? book.kind}</span>
-                      <span className="farm-screen__book-title farm-screen__paper">{book.title}</span>
+                      <span className="farm-screen__book-title farm-screen__paper" title={book.title}><span className="farm-screen__book-title-text">{book.title}</span></span>
                     </button>
                   </li>
                 ))}
