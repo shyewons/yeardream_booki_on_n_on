@@ -192,7 +192,7 @@ ssh 사용자@접속주소 -p 포트 -L 5173:localhost:5173     # 접속 정보�
 
 | 항목 | 권장(기본) | 팀 시연 |
 |---|---|---|
-| 서버 컴퓨터 | 아무 컴퓨터 (모델은 GPU · 맥 권장) | Apple Silicon 맥 (모델은 맥 GPU `mps` 로 자동 선택) |
+| 서버 컴퓨터 | 아무 컴퓨터 (모델은 GPU · 맥 권장) | 아무 컴퓨터 (모델은 cuda, mps, cpu 자동 선택) |
 | 모델 | `USE_MODELS=0` (임시 응답) | `USE_MODELS=1` |
 | 설명 모델 | `EXPLAIN_LLM=small` (Kanana 1.5 2.1B) | `EXPLAIN_LLM=large` (Kanana 2 3B) |
 | 백엔드 | `uvicorn main:app --reload` | 같음 |
