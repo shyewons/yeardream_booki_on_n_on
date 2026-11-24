@@ -7,14 +7,12 @@
 
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
-import { resolveWardrobeImage } from './wardrobeImages.js'
+import WardrobeAvatar from './WardrobeAvatar.jsx'
+import WardrobeThumbnail from './WardrobeThumbnail.jsx'
 import RecentFixesPage from './RecentFixesPage.jsx'
 import WardrobePage from './WardrobePage.jsx'
-import child from './assets/characters/child-cream-shirt.png'
 import gift from './assets/icons/reward-gift.png'
 import './DashboardPage.css'
-
-const SLOT_LABEL = { top: '상의', bottom: '하의', hat: '모자', shoes: '신발', gloves: '장갑' }
 
 export default function DashboardPage({ onBack, onAuthError }) {
     const [view, setView] = useState('main') // 'main' 대시보드 메인 / 'fixes' 최근 고친 문장 / 'wardrobe' 옷장
@@ -101,16 +99,10 @@ export default function DashboardPage({ onBack, onAuthError }) {
         <div className="records__panel records__paper">
             <section className="records__character records__card" aria-labelledby="records-character-title">
                 <h2 id="records-character-title">내 캐릭터</h2>
-                {/* 전신 에셋은 기본 모습이다. 카드용 의상 썸네일을 몸 위에 겹치지 않는다. */}
-                <div className="records__portrait"><img src={child} alt="내 캐릭터 기본 모습" /></div>
-                <div className="records__equipment">
-                    {character ? <details>
-                        <summary>지금 입은 옷</summary>
-                        <ul>{Object.entries(SLOT_LABEL).map(([slot, label]) => (
-                            <li key={slot}><span>{label}</span> {character[slot]?.name || '없음'}</li>
-                        ))}</ul>
-                    </details> : data && <p className="ui-muted">착용 정보를 불러오지 못했어요.</p>}
+                <div className="records__portrait" aria-busy={!data && !error}>
+                    {data && !error && character && <WardrobeAvatar character={character} />}
                 </div>
+                {data && !character && <p className="ui-muted">착용 정보를 불러오지 못했어요.</p>}
                 <button className="ui-button ui-button--secondary records__wardrobe" type="button" onClick={() => setView('wardrobe')}>옷장</button>
             </section>
 
@@ -146,10 +138,9 @@ export default function DashboardPage({ onBack, onAuthError }) {
                                 <div className="records__progress" role="progressbar" aria-label="주간 선물까지 쓴 날" aria-valuemin={0} aria-valuemax={reward.progress.need} aria-valuenow={Math.min(reward.progress.count, reward.progress.need)}>
                                     {Array.from({ length: reward.progress.need }, (_, index) => <span key={index} className={'records__dot' + (index < reward.progress.count ? ' records__dot--filled' : '')} />)}
                                 </div>
-                                {currentGift.clothes && <img className={'records__gift-image' + (currentGift.status === 'locked' ? ' records__gift-image--locked' : '')}
-                                    src={resolveWardrobeImage(currentGift.clothes.image_url) || gift} alt="" onError={(event) => {
-                                        if (event.currentTarget.src !== new URL(gift, window.location.href).href) event.currentTarget.src = gift
-                                    }} />}
+                                {currentGift.clothes && <WardrobeThumbnail item={currentGift.clothes}
+                                    className={'records__gift-image' + (currentGift.status === 'locked' ? ' records__gift-image--locked' : '')}
+                                    fallback={<img src={gift} alt="" />} />}
                                 <div className="records__gift-status">
                                     {currentGift.status === 'claimable' && <button type="button" className="ui-button ui-button--primary ui-button--small" disabled={claiming} aria-busy={claiming} onClick={() => claim(currentGift.week_start)}>
                                         {claiming ? '받는 중…' : failedWeek === currentGift.week_start ? '다시 받기' : '선물 받기'}

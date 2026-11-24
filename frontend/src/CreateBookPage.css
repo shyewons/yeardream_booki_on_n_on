@@ -71,26 +71,32 @@ body:has(.create-book) { margin: 0; background: var(--color-outside); }
 }
 .create-book--fairy:not(.create-book--topics) { padding-bottom: 56px; }
 .create-book__topic-content { position: relative; min-height: 318px; }
-.create-book__topic-list { display: grid; gap: 10px; list-style: none; padding: 0; margin: 0; }
+.create-book__topic-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; list-style: none; padding: 0; margin: 0; }
+.create-book__topic-list li { display: flex; min-width: 0; }
 .create-book__topic-card {
     display: flex;
-    align-items: center;
-    gap: 20px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
     width: 100%;
-    min-height: 98px;
-    padding: 10px 20px;
+    min-height: 318px;
+    padding: 16px 12px 20px;
     border: 2px solid #dec08b;
     border-radius: 24px;
     background: var(--color-input);
     color: var(--color-text);
     box-shadow: inset 0 2px 3px #ffffffb0, 0 2px 3px #9b782b1a;
     text-align: left;
+    white-space: normal;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
     cursor: pointer;
 }
-.create-book__topic-copy { display: grid; gap: 4px; min-width: 0; flex: 1; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
-.create-book__topic-title { font-size: var(--font-body); font-weight: var(--weight-semibold); line-height: var(--line-control); }
+.create-book__topic-title { display: grid; place-items: center; min-height: 2.8em; font-size: var(--font-body); font-weight: var(--weight-semibold); line-height: var(--line-control); text-align: center; }
+.create-book__topic-image { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 14px; overflow: hidden; background: var(--color-cream-light); }
+.create-book__topic-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .create-book__topic-prompt { font-size: var(--font-description); line-height: var(--line-body); }
-.create-book__topic-chevron { width: 16px; height: 24px; flex: 0 0 auto; background: var(--color-primary); mask: url('./assets/icons/chevron-right.svg') center / contain no-repeat; }
+.create-book__topic-card:hover:not(:disabled) { border-color: var(--color-primary); }
 .create-book__topic-card:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 3px; }
 .create-book__topic-card:active:not(:disabled) { box-shadow: inset 0 2px 4px #9b782b30; }
 .create-book__topic-card:disabled { cursor: progress; }

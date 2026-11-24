@@ -69,13 +69,7 @@ body:has(.records) {
     box-shadow: inset 0 1px 2px #fffaf1;
 }
 .records__character { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; padding: 24px 14px 16px; }
-.records__portrait { position: relative; flex: 1; min-height: 180px; width: 100%; }
-.records__portrait img { position: absolute; top: 50%; left: 0; transform: translateY(-50%); display: block; width: 100%; height: 100%; max-height: 300px; object-fit: contain; object-position: center bottom; }
-.records__equipment { width: 100%; font-size: var(--font-support); text-align: left; }
-.records__equipment summary { cursor: pointer; min-height: var(--touch-min); display: list-item; align-content: center; text-align: center; }
-.records__equipment ul { max-height: 100px; overflow-y: auto; padding-top: 6px; }
-.records__equipment li { overflow-wrap: anywhere; }
-.records__equipment li span { color: var(--color-muted); }
+.records__portrait { position: relative; flex: 1; min-height: 180px; width: 100%; display: grid; place-items: center; }
 .records__wardrobe { width: 100%; }
 
 .records__content { min-width: 0; min-height: 0; display: grid; grid-template-rows: 150px 172px minmax(0, 1fr) 52px; gap: 12px; }
@@ -143,9 +137,8 @@ body:has(.records) {
     .records__character { display: grid; grid-template-columns: 110px minmax(0, 1fr); text-align: left; }
     .records__character h2 { grid-column: 2; }
     .records__portrait { grid-column: 1; grid-row: 1 / 4; min-height: 150px; }
-    .records__portrait img { height: 150px; }
-    .records__equipment, .records__wardrobe { grid-column: 2; }
-    .records__equipment summary { text-align: left; }
+    .records__portrait .wardrobe-avatar-frame { max-width: 100px; }
+    .records__wardrobe { grid-column: 2; }
     .records__day { width: 32px; height: 32px; line-height: 26px; font-size: 24px; }
     .records__weekday { min-width: 30px; }
     .records__days { gap: 4px; }

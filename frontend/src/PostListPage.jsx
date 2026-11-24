@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import { KIND_LABEL, NEW_CHAPTER, chapterTarget, fmtDate, todayKST } from './format.js'
 import { useLoad } from './useLoad.js'
+import WardrobeThumbnail from './WardrobeThumbnail.jsx'
 import diaryBook from './assets/backgrounds/diary-list-book.png'
 import fairyBook from './assets/backgrounds/fairy-list-book.png'
 import sheep from './assets/characters/sheep.png'
@@ -206,6 +207,7 @@ function StoryChapters({ data, onHome, onOpenEntry, onWrite, onAuthError, reload
         </div>
         {chapters.length ? <EntryRows items={chapters} fairy onOpenEntry={onOpenEntry} /> : <div className="post-list__empty"><p className="ui-body">아직 쓴 이야기가 없어요.</p><p className="ui-description ui-muted">새 장 쓰기를 눌러 이야기를 시작해요.</p></div>}
         {gift && <Confirmation label="동화 선물" busy={gifting} onCancel={() => { setGift(null); setError('') }}>
+            <WardrobeThumbnail item={gift.got || gift.clothes} className="post-list__gift-preview" fallback={<img src={giftIcon} alt="" />} />
             {gift.got ? <>
                 <p className="ui-body" id="gift-got">🎉 {gift.got.name}을(를) 받았어요! 옷장에서 입혀 볼 수 있어요.</p>
                 <div className="ui-actions"><button className="ui-button ui-button--primary" type="button" onClick={() => setGift(null)}>좋아요</button></div>

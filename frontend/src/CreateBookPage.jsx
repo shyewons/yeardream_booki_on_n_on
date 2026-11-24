@@ -1,6 +1,6 @@
 // 새 책 만들기 화면 (요구사항정의서 차트 - 화면ID 시트 - 03번 화면)
 //   1단계: 일기 / 동화 고르기 (FR-002)
-//   (동화만) 주제 고르기: 주제 3개(이름 + 쓰기 안내. 시작 상황 opening 은 글쓰기 첫 장에서 보여 준다) · 다른 주제 보기 · 내가 정할래요 (디자인 시안 03D)
+//   (동화만) 주제 고르기: 주제 3개(이름 + 그림 + 쓰기 안내. 시작 상황 opening 은 글쓰기 첫 장에서 보여 준다) · 다른 주제 보기 · 내가 정할래요 (디자인 시안 03D)
 //   2단계: 책 이름 정하기 (FR-030, 기능+화면 시트의 '화면 생성 필요' 화면을 같은 파일에 둠)
 //          동화는 고른 주제 이름을 책 이름 칸에 미리 적어 둔다 (아이가 고쳐 쓸 수 있다)
 // GET /api/topics?others=2 → 주제 3개 { items: [{id, title, prompt, opening}] }
@@ -20,6 +20,30 @@ import './CreateBookPage.css'
 const TITLE_MAX = 20 // backend/books_repo.py 의 MAX_TITLE 과 같은 값
 const KIND_LABEL = { diary: '일기', fairy: '동화' }
 const TOPIC_COUNT = 3 // 한 번에 보여 주는 주제 수 (추천 1 + 다른 주제 2)
+const TOPIC_IMAGES = import.meta.glob('./assets/story-topics/*.png', { eager: true, query: '?url', import: 'default' })
+// API의 title과 기존 그림 파일을 연결한다. 화면의 제목·설명은 계속 DB의 title·prompt를 사용한다.
+const TOPIC_IMAGE_FILES = {
+    '고양이': '01-cat.png',
+    '강아지': '02-dog.png',
+    '토끼': '03-rabbit.png',
+    '공룡': '04-dinosaur.png',
+    '작은 용': '05-little-dragon.png',
+    '곰': '06-bear.png',
+    '펭귄': '07-penguin.png',
+    '바닷속 학교': '08-underwater-school.png',
+    '다람쥐': '09-squirrel.png',
+    '도깨비': '10-dokkaebi.png',
+    '장난감 로봇': '11-toy-robot.png',
+    '우주선': '12-spaceship.png',
+    '마법 가방': '13-magic-bag.png',
+    '비밀 문': '14-secret-door.png',
+    '말하는 나무': '15-talking-tree.png',
+    '구름 마을': '16-cloud-village.png',
+    '길 잃은 별': '17-homesick-star.png',
+    '하늘을 나는 신발': '18-flying-shoes.png',
+    '눈사람': '19-snowman.png',
+    '장난감 기차': '20-toy-train.png',
+}
 
 function Ropes() {
     return <>
@@ -176,17 +200,18 @@ export default function CreateBookPage({ onCreated, onCancel, onAuthError }) {
                         <div className="create-book__topic-content" aria-busy={topicsLoading}>
                             {!!topics?.length && (
                                 <ul className="create-book__topic-list">
-                                    {topics.map((t) => (
-                                        <li key={t.title}>
+                                    {topics.map((t) => {
+                                        const image = TOPIC_IMAGES[`./assets/story-topics/${t.image_filename || TOPIC_IMAGE_FILES[t.title]}`]
+                                        return <li key={t.id ?? t.title}>
                                             <button className="create-book__topic-card" type="button" onClick={() => pickTopic(t)} disabled={topicsLoading}>
-                                                <span className="create-book__topic-copy">
-                                                    <strong className="create-book__topic-title">{t.title}</strong>
-                                                    {t.prompt && <span className="create-book__topic-prompt">{t.prompt}</span>}
+                                                <strong className="create-book__topic-title">{t.title}</strong>
+                                                <span className="create-book__topic-image" aria-hidden="true">
+                                                    {image && <img src={image} alt="" draggable="false" />}
                                                 </span>
-                                                <span className="create-book__topic-chevron" aria-hidden="true" />
+                                                {t.prompt && <span className="create-book__topic-prompt">{t.prompt}</span>}
                                             </button>
                                         </li>
-                                    ))}
+                                    })}
                                 </ul>
                             )}
                             {topicsLoading && <p className={`ui-description ui-muted create-book__topic-loading${topics?.length ? '' : ' create-book__topic-loading--initial'}`} role="status">주제를 불러오고 있어요</p>}
