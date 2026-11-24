@@ -430,10 +430,10 @@ export default function WritePage({ bookId, bookKind, date, note = null, startHi
         return days > state.rules.diary_late_days ? days : null
     })()
 
-    // 동화: 지금 장이 아직 선물 기준 문장 수에 모자라면 { have, need } ('다음 장' 묻기에 안내)
+    // 추천 주제 동화만 선물 기준을 안내한다. 자유 주제(topicId === null)는 보상이 없다.
     const giftNeed = state.rules ? state.rules.story_chapter_min_sentences : 3
     const giftHave = state.sentences.filter((s) => s.original).length
-    const giftShort = state.kind === 'fairy' && giftHave < giftNeed ? { have: giftHave, need: giftNeed } : null
+    const giftShort = state.kind === 'fairy' && state.topicId !== null && giftHave < giftNeed ? { have: giftHave, need: giftNeed } : null
 
     const editing = state.sentences.find((s) => s.id === state.editingId)
     const insertNext = state.insertAt !== null ? state.sentences[state.insertAt] : null

@@ -73,14 +73,14 @@ function BookLayout({ book, onHome, onPrint, finished, children, footer }) {
     </main>
 }
 
-function EntryRows({ items, fairy = false, onOpenEntry }) {
+function EntryRows({ items, fairy = false, rewardsEnabled = true, onOpenEntry }) {
     return <ul className="post-list__rows">
         {items.map((entry) => <li key={entry.id}>
             <button className="post-list__entry" type="button" onClick={() => onOpenEntry(entry.id)}>
                 {fairy ? <span className="post-list__chapter">
                     <span>{entry.display_no}장</span>
-                    {/* 선물에 세는 장(기준 문장 수 이상)은 ✓, 아니면 지금 문장 수 (디자인 때 모양만 바꾸거나 뺄 수 있게 따로 둔다) */}
-                    <span className={entry.qualified ? 'chapter-mark ok' : 'chapter-mark'}>{entry.qualified ? '✓' : `(${entry.sentence_count}문장)`}</span>
+                    {/* 자유 주제는 보상 달성 표시 대신 문장 수만 보여 준다. */}
+                    <span className={rewardsEnabled && entry.qualified ? 'chapter-mark ok' : 'chapter-mark'}>{rewardsEnabled && entry.qualified ? '✓' : `(${entry.sentence_count}문장)`}</span>
                     <span className="post-list__preview" title={entry.first || '(쓰던 문장만 있어요)'}>{entry.first || '(쓰던 문장만 있어요)'}</span>
                 </span> : <span className="post-list__entry-text">
                     <span className="post-list__date">{fmtDate(entry.date)}</span>
@@ -115,7 +115,8 @@ function StoryChapters({ data, onHome, onOpenEntry, onWrite, onPrint, onAuthErro
     // 받을 수 있는 구간의 선물 상자를 누르면 묻고(gift-ask) 받는다 (POST …/claim). 받은 뒤에는 응답의 fairy_reward 로 바로 바꾼다
     const rewardLoad = useLoad(`/api/rewards/fairy/${book.id}`, onAuthError)
     const [rewardFresh, setRewardFresh] = useState(null)
-    const reward = rewardFresh || rewardLoad.data                     // 불러오지 못하면 null (상자는 진행 표시만 한다)
+    const reward = rewardFresh || rewardLoad.data
+    const rewardsEnabled = reward?.enabled === true                  // 확인 전에도 자유 주제의 선물 상자가 잠깐 보이지 않게 한다
     const [gift, setGift] = useState(null)                           // 묻는 중인 구간 {order, chapters, clothes} · 받은 뒤 {got}
     const [gifting, setGifting] = useState(false)
     const last = story.chapters.length ? story.chapters[story.chapters.length - 1] : null
@@ -177,7 +178,7 @@ function StoryChapters({ data, onHome, onOpenEntry, onWrite, onPrint, onAuthErro
         </>
     }>
         <div className="post-list__toolbar">
-            <div className="post-list__rewards" id="reward-progress">
+            {rewardsEnabled && <div className="post-list__rewards" id="reward-progress">
                 <span className="ui-description">이 책의 보상</span>
                 <div className="post-list__reward-track" role="group" aria-label={`${minSentences}문장 이상 쓴 장 ${story.qualified}개. ${nextGift ? `다음 선물까지 ${nextGift - story.qualified}장` : '선물을 모두 모았어요'}`}>
                     <span className="post-list__reward-fill" style={{ width: `${Math.min(100, story.qualified / maxReward * 100)}%` }} />
@@ -201,14 +202,14 @@ function StoryChapters({ data, onHome, onOpenEntry, onWrite, onPrint, onAuthErro
                                     title={claimed ? `${stage.clothes ? stage.clothes.name : '선물'}을(를) 받았어요` : `${minSentences}문장 이상 쓴 장이 ${step}개가 되면 받아요`}>{inner}</span>
                     })}
                 </div>
-            </div>
+            </div>}
             {!story.finished && <div className="post-list__write-actions">
                 <button className="ui-button ui-button--primary" type="button" id="new-chapter" disabled={chapters.length > 0 && !story.can_new_chapter} onClick={() => onWrite(chapters.length ? NEW_CHAPTER : null)}>새 장 쓰기</button>
                 {chapters.length > 0 && <button className="ui-button ui-button--secondary" type="button" id="continue" onClick={continueStory} aria-label={`이어서 쓰기 (${lastShown}장)`}>이어서 쓰기</button>}
             </div>}
         </div>
-        {chapters.length ? <EntryRows items={chapters} fairy onOpenEntry={onOpenEntry} /> : <div className="post-list__empty"><p className="ui-body">아직 쓴 이야기가 없어요.</p><p className="ui-description ui-muted">새 장 쓰기를 눌러 이야기를 시작해요.</p></div>}
-        {gift && <Confirmation label="동화 선물" busy={gifting} onCancel={() => { setGift(null); setError('') }}>
+        {chapters.length ? <EntryRows items={chapters} fairy rewardsEnabled={rewardsEnabled} onOpenEntry={onOpenEntry} /> : <div className="post-list__empty"><p className="ui-body">아직 쓴 이야기가 없어요.</p><p className="ui-description ui-muted">새 장 쓰기를 눌러 이야기를 시작해요.</p></div>}
+        {rewardsEnabled && gift && <Confirmation label="동화 선물" busy={gifting} onCancel={() => { setGift(null); setError('') }}>
             <WardrobeThumbnail item={gift.got || gift.clothes} className="post-list__gift-preview" fallback={<img src={giftIcon} alt="" />} />
             {gift.got ? <>
                 <p className="ui-body" id="gift-got">🎉 {gift.got.name}을(를) 받았어요! 옷장에서 입혀 볼 수 있어요.</p>
