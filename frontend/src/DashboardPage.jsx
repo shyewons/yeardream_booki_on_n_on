@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
+import { resolveWardrobeImage } from './wardrobeImages.js'
 import RecentFixesPage from './RecentFixesPage.jsx'
 import WardrobePage from './WardrobePage.jsx'
 import child from './assets/characters/child-cream-shirt.png'
@@ -146,7 +147,7 @@ export default function DashboardPage({ onBack, onAuthError }) {
                                     {Array.from({ length: reward.progress.need }, (_, index) => <span key={index} className={'records__dot' + (index < reward.progress.count ? ' records__dot--filled' : '')} />)}
                                 </div>
                                 {currentGift.clothes && <img className={'records__gift-image' + (currentGift.status === 'locked' ? ' records__gift-image--locked' : '')}
-                                    src={currentGift.clothes.image_url || gift} alt="" onError={(event) => {
+                                    src={resolveWardrobeImage(currentGift.clothes.image_url) || gift} alt="" onError={(event) => {
                                         if (event.currentTarget.src !== new URL(gift, window.location.href).href) event.currentTarget.src = gift
                                     }} />}
                                 <div className="records__gift-status">

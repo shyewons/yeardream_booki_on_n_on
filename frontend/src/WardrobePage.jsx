@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import { useLoad } from './useLoad.js'
+import { resolveWardrobeImage } from './wardrobeImages.js'
 import child from './assets/characters/child-cream-shirt.png'
 import blueTop from './assets/icons/wardrobe-top-blue.png'
 import greenTop from './assets/icons/wardrobe-top-green.png'
@@ -30,7 +31,7 @@ function ClothesImage({ item, slot }) {
     const [failedUrl, setFailedUrl] = useState(null)
     const url = item.image_url
     const local = url && !/^https?:/i.test(url) ? THUMBNAILS[url.split('/').at(-1)] : null
-    const src = local || url
+    const src = local || resolveWardrobeImage(url)
     return <div className="closet__image">
         {src && failedUrl !== src ? <img src={src} alt="" onError={() => setFailedUrl(src)} /> : <SlotIcon slot={slot} />}
     </div>
