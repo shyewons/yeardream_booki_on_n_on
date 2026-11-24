@@ -45,6 +45,7 @@ import { api, apiStream, track as trackEvent } from './api.js'
 const DRAFT_DELAY_MS = 2000      // 입력을 멈추고 이만큼(1000 = 1초) 지나면 쓰던 문장을 임시저장한다
 const DRAFT_MAX_WAIT_MS = 10000  // 쉬지 않고 치는 중이어도 이만큼마다 한 번은 임시저장한다 (실패했을 때 다시 해 보는 간격도 같다)
 const UNDO_SECONDS = 5      // 문장을 지운 뒤 '되돌리기'를 보여 주는 시간 (초)
+const SELF_FIX_MAX = 2      // 일기: 교정 뒤 직접 고쳐 다시 검사받는 횟수. 그래도 고칠 곳이 남으면 고친 문장 그대로 넘어간다 (2026-11-24)
 
 const track = (event, data) => trackEvent(event, data, 'write')
 const short = (e) => String((e && e.message) || e).slice(0, 200)
@@ -111,6 +112,8 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         nextAsk: false,           // 동화: '다음 장을 쓸까요?'를 묻고 있는지
         dayDoneAt: null,          // 일기: 하루치(3문장)를 처음 채운 시각 (서버 entries.day_done_at). 있으면 작은 안내를 띄운다
         saveAsk: false,           // 일기: 나가기 전에 '저장할까요?'를 묻고 있는지
+        fixedLine: null,          // 일기 · 동화: 직접 고쳐 쓰기를 끝내고 자동으로 고친 문장으로 넘어간 줄의 id. 안내 칸에 고친 곳을 노랗게 보여 준다 (clearNotice 로 지움)
+        selfFix: null,            // 일기 · 동화: 교정 뒤 아이가 직접 고쳐 쓰는 중이면 { id, tries } (FR-013 재입력 · 재검사). 그 줄을 다시쓰기(editingId) 상태로 연다
     }
 
     // ── 화면에 보이지 않는 상태 ──
@@ -455,7 +458,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     }
 
     // ── 입력 안내 ──
-    function clearNotice() { st.notice = ''; st.shown = ''; st.choices = null }
+    function clearNotice() { st.notice = ''; st.shown = ''; st.choices = null; st.fixedLine = null }
 
     function mark(text, spans) {                        // 하이라이트 구간을 【 】로 감싼다 (뒤에서부터 바꿔야 위치가 어긋나지 않는다)
         let out = text
@@ -471,6 +474,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
     function startEdit(id) {
         if (st.busy || st.deletingId !== null) return
         st.insertAt = null
+        st.selfFix = null
         track('edit_start', { seq: st.sentences.findIndex((x) => x.id === id) + 1 })
         st.editingId = id
         resetLine(); clearNotice(); st.box = ''
@@ -484,7 +488,29 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         track('edit_cancel', { editing: st.editingId !== null, inserting: st.insertAt !== null })
         st.insertAt = null
         st.editingId = null
+        st.selfFix = null
         resetLine(); clearNotice(); st.box = ''
+        focus(); emit()
+        syncDraft(false)
+        loadQuestion()
+    }
+
+    // 일기 · 동화: 직접 고쳐 쓰기를 그만두고 고친 문장 그대로 다음 문장으로 넘어간다 (고친 문장은 이미 저장되어 있다)
+    //   unchanged: 입력칸을 고치지 않고 그대로 냈을 때 (submit). 재검사 없이 넘어가고, 자동으로 고친 문장이 들어갔다고 알려 준다
+    function skipSelfFix(unchanged = false) {
+        if (st.busy || !st.selfFix) return
+        unchanged = unchanged === true                    // 버튼 onClick 은 클릭 이벤트를 넘기므로 true 일 때만
+        const line = st.sentences.find((x) => x.id === st.selfFix.id)
+        track(unchanged ? 'selffix_unchanged' : 'selffix_skip', { tries: st.selfFix.tries })
+        st.selfFix = null
+        st.insertAt = null
+        st.editingId = null
+        resetLine(); clearNotice(); st.box = ''
+        if (line) {                                       // 어떻게 고쳤는지 안내 칸에 노랗게 보여 준다 (fixedLine)
+            st.notice = unchanged ? '고치지 않아서 자동으로 고친 문장으로 넘어갈게요.' : '고친 문장으로 넘어갈게요.'
+            st.shown = line.revised || line.original
+            st.fixedLine = line.id
+        }
         focus(); emit()
         syncDraft(false)
         loadQuestion()
@@ -496,6 +522,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         if (i < 0) return
         track('insert_start', { at: i + 1 })
         st.editingId = null
+        st.selfFix = null
         st.insertAt = i
         resetLine(); clearNotice(); st.box = ''
         focus(); emit()
@@ -516,7 +543,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         const a = st.sentences[i]
         const b = st.sentences[j]
         track('move', { from: i + 1, to: j + 1 })
-        clearNotice(); st.editingId = null; st.insertAt = null
+        clearNotice(); st.editingId = null; st.insertAt = null; st.selfFix = null
         st.sentences[i] = b
         st.sentences[j] = a
         scrollTo(a.id)
@@ -664,6 +691,8 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
 
         if (r.route === 'correction') {
             carried = []
+            const fixing = st.selfFix && st.selfFix.id === st.editingId ? st.selfFix : null   // 직접 고쳐 다시 낸 문장이면 그 기록
+            st.selfFix = null
             let s = st.sentences.find((x) => x.id === st.editingId)
             if (s) s.reason = 'edit'                        // 다시쓰기: 서버가 옛 줄을 기록으로 남긴다
             if (!s) {                                       // 새 줄: 맨 뒤에 붙이거나, 고른 자리에 끼워 넣는다
@@ -683,7 +712,9 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             emit()
             await runCorrection(s)
             if (dbMode && s.saveState === 'pending') queueSave(s)                          // 교정이 끝난 문장을 바로 임시저장
-            if (st.kind === 'fairy' && s.original && !s.work) await offerExpressions(s)    // 동화: 다르게 쓴 표현을 고르게 한다
+            // 동화: 다르게 쓴 표현을 고르게 한다. 맞춤법을 고친 문장은 교정 · 직접 고쳐 쓰기만 하고 추천하지 않는다
+            //   (고쳐 쓰기를 거친 문장 — 처음 교정됐거나(was_corrected) 직접 고쳐 다시 낸 문장(fixing) — 은 건너뜀. 한 문장에 배울 거리 하나씩, 2026-11-24)
+            if (st.kind === 'fairy' && s.original && !s.work && !s.was_corrected && !fixing) await offerExpressions(s)
             st.busy = false
             st.editingId = null
             if (s.work && s.work.status === 'error') {      // 실패: 새 줄이었다면 목록에서 치우고 입력으로 돌려준다 (다시쓰기였다면 기존 문장 유지)
@@ -695,6 +726,34 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
                 // 쓰던 자리로 되돌린다 (다시쓰기였으면 그 줄, 위에 넣기였으면 그 자리). 임시저장도 그대로 남아 있다
                 if (st.sentences.some((x) => x.id === wasEditing)) st.editingId = wasEditing
                 else if (wasInsertAt !== null && wasInsertAt < st.sentences.length) st.insertAt = wasInsertAt
+            }
+            // 일기 · 동화: 고친 곳이 있으면 아이가 직접 고쳐 보게 한다 (FR-013. 동화도 같은 방식, 2026-11-24). 고친 문장은 이미 저장했고, 그 줄을 다시쓰기로 열어
+            // 입력칸에 아이가 쓴 문장을 넣어 둔다. 다시 내면 재검사 → 통과하면 아이가 고친 문장으로 바뀐다.
+            // 재검사는 SELF_FIX_MAX 번까지. 그래도 남으면 고친 문장 그대로 넘어간다. '이대로 넘어갈게요'(skipSelfFix)로 언제든 그만둘 수 있다
+            if (s.original && !s.work) {
+                if (fixing && fixing.id === s.id) {
+                    const n = fixing.tries + 1
+                    if (!s.was_corrected) {
+                        st.notice = '잘 고쳤어요! 내가 고친 문장으로 바꿨어요.'
+                        st.shown = s.revised || s.original
+                        track('selffix_pass', { tries: n })
+                    } else if (n < SELF_FIX_MAX) {
+                        st.selfFix = { id: s.id, tries: n }
+                        st.editingId = s.id
+                        st.box = s.original
+                        track('selffix_again', { tries: n })
+                    } else {
+                        st.notice = '여기까지 고쳐 봤어요. 고친 문장으로 넘어갈게요.'
+                        st.shown = s.revised || s.original
+                        st.fixedLine = s.id                    // 어떻게 고쳤는지 안내 칸에 노랗게 보여 준다
+                        track('selffix_stop', { tries: n })
+                    }
+                } else if (s.was_corrected) {
+                    st.selfFix = { id: s.id, tries: 0 }
+                    st.editingId = s.id
+                    st.box = s.original
+                    track('selffix_start', { seq: st.sentences.indexOf(s) + 1 })
+                }
             }
             attempt = 0
             tries = 0
@@ -716,6 +775,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
         carried = []
         if (r.route === 'skipped') {                      // 3번 실패: 이 줄 건너뜀
             st.box = ''
+            st.selfFix = null
             if (st.editingId !== null) {                    // 다시쓰기였다면 기존 문장을 그대로 둔다
                 st.notice = `${r.retry_message || ''} 기존 문장을 그대로 두었어요.`
                 st.editingId = null
@@ -745,6 +805,10 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             st.notice = '끝낸 이야기는 고쳐 쓰기만 할 수 있어요. 고칠 문장의 다시쓰기를 눌러 주세요.'
             emit()
             return
+        }
+        if (st.selfFix && st.selfFix.id === st.editingId) {   // 직접 고쳐 쓰기 중 입력칸을 그대로 냈다 → 재검사 없이 넘어간다
+            const line = st.sentences.find((x) => x.id === st.editingId)
+            if (line && st.box.trim() === (line.original || '').trim()) { skipSelfFix(true); return }
         }
         carried = []
         syncDraft(true, draftNow())                       // 검사 · 교정에 들어가기 전에 쓴 문장을 먼저 임시저장한다
@@ -1087,7 +1151,7 @@ export function createWriter({ book, date, practice, onSaved, onAuthError }) {
             if (exprResolve) exprResolve()
         },
         boot, submit, choose, setBox(v) { st.box = v; emit(); syncDraft(false) }, flushDraft,
-        startEdit, cancelEdit, startInsert, moveSentence, retrySaves,
+        startEdit, cancelEdit, startInsert, moveSentence, retrySaves, skipSelfFix,
         askDelete, cancelDelete, confirmDelete, undoDelete,
         openTopics, chooseTopic, closeTopics, topicChangeable, pickExpr, confirmExpr, retryExpr, skipExpr,
         toggleFix(id, open) { const s = st.sentences.find((x) => x.id === id); if (s && !!s.openFix !== open) { s.openFix = open; emit() } },

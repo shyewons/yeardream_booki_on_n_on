@@ -8,12 +8,26 @@ import fairySpread from './assets/backgrounds/fairy-writing-spread.png'
 import bubble from './assets/icons/cloud-speech-bubble.png'
 import './DiaryWriteView.css'
 
+// 고친 낱말에 노란 표시. 고친 곳의 원문 위치(start · end)로 교정 문장 속 자리를 셈한다
+//   (교정 문장 = 원문에 고친 곳만 바꿔 넣은 것이라, 앞에서 고친 만큼 길이가 늘거나 준 것만 더하면 된다. 백엔드 keep_child_punct)
+//   글자로만 찾으면(indexOf) 같은 말이 앞에 있을 때 앞의 것에 칠해진다 — "마자 마자" → 둘 다 앞의 것, "맞아 마자" → 이미 맞게 쓴 앞의 것 (2026-11-24)
+//   자리가 맞지 않으면(위치 정보가 없는 예전 기록 등) 앞에서 찾은 자리 다음부터 글자로 찾는다
 function CorrectedText({ sentence }) {
     const text = sentence.revised || sentence.original
-    const ranges = (sentence.corrections || []).flatMap(({ after }) => {
-        const start = after ? text.indexOf(after) : -1
-        return start < 0 ? [] : [{ start, end: start + after.length }]
-    }).sort((a, b) => a.start - b.start)
+    const ranges = []
+    let from = 0
+    let shift = 0                                     // 앞에서 고친 곳 때문에 늘거나 준 글자 수
+    const items = (sentence.corrections || []).map((item, i) => ({ item, i }))
+        .sort((a, b) => (a.item.start ?? a.i) - (b.item.start ?? b.i) || a.i - b.i)
+    for (const { item: { before, after, start: at } } of items) {
+        if (!after) continue
+        let start = Number.isInteger(at) ? at + shift : -1
+        if (start < from || text.slice(start, start + after.length) !== after) start = text.indexOf(after, from)
+        if (Number.isInteger(at) && typeof before === 'string') shift += after.length - before.length
+        if (start < 0) continue
+        ranges.push({ start, end: start + after.length })
+        from = start + after.length
+    }
     const parts = []
     let cursor = 0
     for (const range of ranges) {
@@ -63,7 +77,9 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
     const first = !hasPages && !pending && !state.notice && !state.busy
     const spreadLook = hasPages || (!ready && startSpread)     // 펼친 책 모양 (쓴 문장이 있거나, 있다고 알고 불러오는 중)
     const showResult = !pending && !state.notice && selected && state.insertAt === null
-    const inputLabel = editing ? '내 문장 고치기' : state.insertAt !== null ? '사이에 넣을 문장' : '한 문장씩 써요'
+    const fixedLine = state.fixedLine != null && state.sentences.find((sentence) => sentence.id === state.fixedLine)   // 일기 · 동화: 자동으로 고친 문장으로 넘어간 줄 (writer.js fixedLine)
+    const selfFixing = !!editing && state.selfFix?.id === editing.id   // 일기 · 동화: 교정 뒤 직접 고쳐 쓰는 중 (writer.js selfFix, FR-013)
+    const inputLabel = selfFixing ? '틀린 곳을 직접 고쳐 볼까요?' : editing ? '내 문장 고치기' : state.insertAt !== null ? '사이에 넣을 문장' : '한 문장씩 써요'
     const canInput = !fairy || !state.finished || !!editing
 
     useEffect(() => {
@@ -172,14 +188,18 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
                         {storyContext}
                         {expression || (pending ? <div className="diary-write__result diary-write__working" role="status"><h2>문장을 확인하고 있어요</h2><div className="diary-write__result-scroll">{renderWork(pending.work)}</div></div>
                             : state.busy ? <p className="ui-notice" role="status">문장을 확인하고 있어요…</p>
-                            : state.notice || state.choices ? <section className="diary-write__notice ui-notice" aria-label="입력 안내"><p id="msg" role="status">{state.notice}</p>{state.shown && <p id="shown">{state.shown}</p>}
+                            : state.notice || state.choices ? <section className="diary-write__notice ui-notice" aria-label="입력 안내"><p id="msg" role="status">{state.notice}</p>
+                                {fixedLine ? <>
+                                    <p id="shown"><CorrectedText sentence={fixedLine} /></p>
+                                    {(fixedLine.corrections || []).map((item, i) => <p className="ui-description diary-write__fixed" key={i}>{item.before} → {item.after}</p>)}
+                                </> : state.shown && <p id="shown">{state.shown}</p>}
                                 {state.choices && <div id="choices">{state.choices.items.map((item, i) => <div key={i}><p>{item.text}</p><div className="ui-actions">{item.labels.map((label, n) => <button type="button" className="ui-button ui-button--secondary ui-button--small" disabled={state.busy} key={n} onClick={() => writer.choose(i, n)}>{label}</button>)}</div></div>)}</div>}
                             </section> : showResult ? <CorrectionPanel key={`${selected.id}-${selected.revised}`} sentence={selected} /> : null)}
                         </div>
                         {canInput && !state.expr && <section className={`diary-write__composer${editing ? ' diary-write__composer--editing' : ''}`} id="composer" aria-label="문장 입력">
                             <div className="diary-write__input-heading">
                                 <label htmlFor="box">{inputLabel}</label>
-                                {(editing || state.insertAt !== null) && <button type="button" className="ui-button ui-button--secondary ui-button--small" id="cancel-edit" disabled={state.busy} onClick={writer.cancelEdit}>취소</button>}
+                                {(editing || state.insertAt !== null) && !selfFixing && <button type="button" className="ui-button ui-button--secondary ui-button--small" id="cancel-edit" disabled={state.busy} onClick={writer.cancelEdit}>취소</button>}
                             </div>
                             {state.insertAt !== null && <p className="ui-description">{state.insertAt + 1}번째 자리에 문장을 넣어요.</p>}
                             <div className="diary-write__input-line">
@@ -192,7 +212,10 @@ export default function DiaryWriteView({ state, writer, boxRef, onChangeDate, on
                                 {!showingHistory && notices}
                                 {!state.save.text && <p className="diary-write__autosave-note" id="unsaved-note">쓰던 문장은 잠시 멈추면 임시저장돼요.</p>}
                             </div>
-                            {hasPages && !fairy && <button className="ui-button ui-button--secondary" id="finish" type="button" disabled={state.busy} onClick={writer.finish}>다 썼어요</button>}
+                            {/* 직접 고쳐 쓰는 중에는 '다 썼어요' 자리에 '이대로 넘어갈게요' (고친 문장 그대로 두고 다음 문장으로). 동화는 '다 썼어요'가 없어 같은 자리에 이 버튼만 나온다 */}
+                            {selfFixing
+                                ? <button className="ui-button ui-button--secondary" id="skip-fix" type="button" disabled={state.busy} onClick={writer.skipSelfFix}>이대로 넘어갈게요</button>
+                                : hasPages && !fairy && <button className="ui-button ui-button--secondary" id="finish" type="button" disabled={state.busy} onClick={writer.finish}>다 썼어요</button>}
                             {canInput && !state.expr && <button className="ui-button ui-button--primary" id="go" type="button" disabled={locked || !state.box.trim()} onClick={writer.submit}>{state.busy ? '확인 중…' : '확인하기'}</button>}
                         </div>
                         {!showingHistory && chapterActions}

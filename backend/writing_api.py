@@ -57,6 +57,8 @@ MODEL_LIBS = ("torch", "transformers", "sentence_transformers", "chromadb", "kiw
 # 동화 표현 추천을 언제 할지 (환경변수 STORY_SUGGEST_ON 으로도 바꿀 수 있다)
 #   "all"           : 맞춤법을 고친 문장에도 추천한다 (고친 문장을 바탕으로). 기본값
 #   "no_correction" : 맞춤법이 맞은 문장에만 추천한다 (팀원 파이프라인의 run_story 와 같은 기준)
+#   2026-11-24 부터 화면(writer.js)이 맞춤법을 고친 문장은 '직접 고쳐 쓰기'(FR-013)만 하고 /suggest 를 부르지 않는다.
+#   그래서 지금은 어느 값이든 화면에서는 'no_correction'처럼 보인다. 고친 문장에도 추천을 다시 넣으려면 writer.js 의 offerExpressions 조건을 바꾼다
 STORY_SUGGEST_ON = os.environ.get("STORY_SUGGEST_ON", "all").strip().lower()
 STORY_SUGGEST_CHOICES = ("all", "no_correction")
 
@@ -66,8 +68,19 @@ STORY_SUGGEST_CHOICES = ("all", "no_correction")
 #   ② 바뀐 곳 찾기는 문장부호만 바뀐 것을 교정으로 치지 않으므로(config.IGNORE_PUNCT_ONLY), 화면에는 '고친 곳 없음'인데 문장부호만 사라진다.
 #   그래서 교정 문장을 '아이가 쓴 문장에 진짜로 고친 곳(difference)만 바꿔 넣은 것'으로 다시 만든다 (keep_child_punct).
 #   아이가 끝에 문장부호를 안 썼으면 교정 모델이 붙인 마침표는 그대로 둔다 ("놀았다" → "놀았다.").
+#   다만 교정 모델이 두 개를 겹쳐 붙이면 하나로 줄인다 ("왜 마즘" → "왜 맞음?." → "왜 맞음?", 2026-11-24).
 KEEP_END_MARKS = True
 _END_MARKS = re.compile(r"[.?!~…]+\s*$")
+
+
+def _one_end_mark(marks: str) -> str:
+    """교정 모델이 붙인 끝 문장부호(아이는 안 씀)를 하나로 줄인다: 물음표 > 느낌표 > 마침표 ("?." → "?", "!." → "!", "~~." → ".")."""
+    marks = marks.strip()
+    if "?" in marks:
+        return "?"
+    if "!" in marks:
+        return "!"
+    return "." if marks else ""
 
 
 def tidy_end(original: str, revised: str) -> str:
@@ -75,9 +88,10 @@ def tidy_end(original: str, revised: str) -> str:
     if not KEEP_END_MARKS or not isinstance(original, str) or not isinstance(revised, str):
         return revised
     mine = _END_MARKS.search(original.rstrip())
-    if not mine:                                          # 아이가 끝에 문장부호를 안 썼다 → 교정 모델 것 그대로
-        return revised
     body = _END_MARKS.sub("", revised.rstrip())
+    if not mine:                                          # 아이가 끝에 문장부호를 안 썼다 → 교정 모델 것을 쓰되 하나로 줄인다
+        added = _END_MARKS.search(revised.rstrip())
+        return body + _one_end_mark(added.group(0)) if body and added else revised
     return body + mine.group(0).strip() if body else revised
 
 
@@ -96,10 +110,10 @@ def keep_child_punct(original: str, revised: str, difference: list) -> str:
     except (KeyError, TypeError):
         return revised
     out = out.rstrip()
-    if not _END_MARKS.search(out):                        # 아이가 끝에 문장부호를 안 썼다 → 교정 모델이 붙인 것을 붙인다
+    if not _END_MARKS.search(out):                        # 아이가 끝에 문장부호를 안 썼다 → 교정 모델이 붙인 것을 하나로 줄여 붙인다
         added = _END_MARKS.search(revised.rstrip())
         if added:
-            out += added.group(0).strip()
+            out += _one_end_mark(added.group(0))
     return out
 
 

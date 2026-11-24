@@ -475,7 +475,9 @@ export default function WritePage({ bookId, bookKind, date, note = null, startHi
         const storyContext = fairy && <>
             {state.finished && <p id="finished-note" role="status" className="ui-description">끝낸 이야기예요. 다시쓰기로 문장을 고칠 수 있어요.</p>}
             {!state.finished && state.rules && (state.displayNo || state.chapterNo) >= state.rules.story_max_chapters && <p id="last-chapter" role="status" className="ui-description">이번이 마지막 장({state.rules.story_max_chapters}장)이에요.</p>}
-            <details className="fairy-write__context" key={written.length ? 'written' : 'empty'} open={!written.length}>
+            {/* 이야기 주제 · 앞 장 보기: 쓴 문장이 없으면 펼쳐 두고, 문장을 쓸 때마다(쓴 문장 수가 바뀌면) 다시 접는다.
+                key 가 바뀌면 새로 그려지며 open 이 처음 값으로 돌아간다 (예전: 첫 문장을 쓸 때 한 번만 접혔다. 2026-11-24) */}
+            <details className="fairy-write__context" key={`n${written.length}`} open={!written.length}>
                 <summary>이야기 주제{state.prevTail?.sentences?.length ? ' · 앞 장 보기' : ''}</summary>
                 <div className="fairy-write__context-scroll">
                     {state.prevTail?.sentences?.length > 0 && <div id="prev-tail"><p>지난 {state.prevTail.display_no || state.prevTail.chapter_no}장에서</p><p>{state.prevTail.sentences.join(' ')}</p></div>}
