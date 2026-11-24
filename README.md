@@ -137,6 +137,55 @@ npm run dev -- --host               # 터미널에 나오는 Network 주소(http
 
 태블릿의 필기 입력(아이패드 스크리블, 윈도우 펜, S펜)으로 글쓰기 칸에 손글씨를 쓸 수 있습니다.
 
+## 서버(리눅스 · GPU)에서 실행
+
+교육 과정에서 받은 GPU 인스턴스(Ubuntu 22.04, A100 MIG 10GB)에서 돌린 방법입니다. 코드는 그대로이고, 설치와 `.env` 만 서버에 맞춥니다.
+모델은 CUDA 를 자동으로 고르고(bf16), 10GB 에서는 `EXPLAIN_LLM=small` 이 넉넉합니다(`large` 는 빠듯함).
+
+**1. 설치** (저장소를 클론한 뒤 한 번. 이미 설치된 것은 건너뛰므로 여러 번 실행해도 됩니다)
+
+```bash
+cd ~/yeardream_booki_on_n_on/backend
+[ -d .venv ] || python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt -r requirements-models.txt
+deactivate
+
+export NVM_DIR="$HOME/.nvm"                      # Node 가 없으면 nvm 으로 Node 22 설치 (npm 도 같이 깔림)
+[ -s "$NVM_DIR/nvm.sh" ] || curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+. "$NVM_DIR/nvm.sh" && nvm install 22
+
+cd ~/yeardream_booki_on_n_on/frontend
+npm install && npm run build
+```
+
+**2. `.env`** — DB 주소는 **서버에서 본 주소**로 적습니다. MySQL 이 같은 서버에 있으면 `127.0.0.1:3306` 입니다
+(내 컴퓨터에서 SSH 터널로 붙을 때 쓰는 `3307` 같은 번호가 아닙니다). 모델을 켜려면 `USE_MODELS=1`.
+
+**3. 실행** — SSH 가 끊겨도 계속 돌도록 tmux 안에서 켭니다.
+
+```bash
+tmux new -s booksil || tmux attach -t booksil
+# 창 1: 백엔드
+cd ~/yeardream_booki_on_n_on/backend && source .venv/bin/activate && uvicorn main:app --host 127.0.0.1 --port 8000
+# Ctrl+B → C 로 창 2: 프론트 (빌드한 화면을 띄움. 백엔드 연결 설정은 개발 서버와 같음)
+export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; cd ~/yeardream_booki_on_n_on/frontend && npm run preview -- --port 5173
+# Ctrl+B → D 로 빠져나오기 (계속 실행됨). 다시 볼 때 tmux attach -t booksil, 전부 끌 때 tmux kill-session -t booksil
+```
+
+**4. 내 컴퓨터에서 열기** — 서버는 SSH 포트만 열려 있으므로 터널로 엽니다. 내 컴퓨터의 터미널에서:
+
+```bash
+ssh 사용자@접속주소 -p 포트 -L 5173:localhost:5173     # 접속 정보는 인스턴스 콘솔의 연결 화면 (재실행하면 포트가 바뀜)
+```
+
+이 창을 켜 둔 채로 브라우저에서 `http://localhost:5173` 을 엽니다. 내 컴퓨터에서 이미 5173 을 쓰고 있으면 `-L 15173:localhost:5173` 으로 열고 `localhost:15173`.
+
+**고친 코드 반영**: 내 컴퓨터에서 push → 서버에서 `git pull` → 백엔드 창 Ctrl+C 후 다시 실행, 프론트 창 Ctrl+C 후 `npm run build && npm run preview -- --port 5173`.
+서버에서 코드 파일을 직접 고치지 않습니다(다음 pull 때 충돌). `.env` 는 git 에 올라가지 않아 서버에서 고쳐도 됩니다.
+
+> 인스턴스는 **종료**만 하고 **삭제**하지 않습니다. 삭제하면 서버의 파일과 DB 가 모두 지워집니다.
+
 ## 팀 시연 환경 (참고)
 
 위 '실행 순서'와 같은 방법이고, 발표 · 시연 때 아래 값으로 켰습니다. 처음 실행한다면 위의 권장 방법(기본값)을 먼저 따라 해 주세요.
@@ -159,10 +208,25 @@ npm run dev -- --host               # 터미널에 나오는 Network 주소(http
 | 증상 | 확인할 것 |
 |---|---|
 | "서버에 연결하지 못했어요" | 백엔드(④)가 켜져 있는지 |
-| "(오류 코드: DB-…)" · 503 | MySQL 이 켜져 있는지, `.env` 의 `DATABASE_URL` 주소 · 비밀번호 · 포트 |
+| "(오류 코드: DB-…)" · 503 | MySQL 이 켜져 있는지, `.env` 의 `DATABASE_URL` 주소 · 비밀번호 · 포트 (서버에서 돌릴 때는 서버에서 본 주소, 예: 같은 서버면 `127.0.0.1:3306`) |
 | 옷장 · 선물이 비어 있음 | ②의 `schema_rewards.sql` · `seed_clothes.sql` 을 실행했는지 |
 | 교정이 너무 느림 / 메모리 부족 | `EXPLAIN_LLM=small`, 첫 요청은 모델을 불러오느라 느립니다 |
 | `.env` 를 고쳤는데 그대로 | 백엔드를 껐다 켜기 (`--reload` 는 `.env` 를 다시 읽지 않습니다) |
+| 모델을 켜고 나면 `git status` 에 `backend/chroma_db/` 파일이 바뀐 것으로 나옴 | 정상입니다(ChromaDB 가 열 때 내부 기록을 씁니다. 검색 내용은 그대로). 커밋하지 말고 아래 [chroma_db 변경 무시하기](#chroma_db-변경-무시하기) |
+
+### chroma_db 변경 무시하기
+
+`backend/chroma_db/` 는 받은 사람이 바로 모델을 켤 수 있게 저장소에 들어 있습니다. 그런데 백엔드가 이 DB 를 열 때마다 `chroma.sqlite3` 와 `.bin` 파일에 내부 기록을 조금 써서, git 에 변경으로 잡힙니다.
+이미 올라간 파일이라 `.gitignore` 로는 막히지 않으므로, 컴퓨터마다 한 번 아래를 실행해 "이 파일들의 변경은 무시"로 표시합니다 (백엔드를 끈 상태에서, 저장소 폴더에서).
+
+```bash
+git restore backend/chroma_db                                          # 지금 잡힌 변경 되돌리기
+git ls-files backend/chroma_db | xargs git update-index --skip-worktree   # 앞으로 무시
+```
+
+- 이 표시는 **그 컴퓨터의 그 저장소에만** 적용되고 커밋되지 않습니다. 서버에서도 `git pull` 로 chroma_db 를 받은 뒤 한 번 실행합니다(안 하면 다음 pull 이 "로컬 변경" 때문에 멈출 수 있습니다).
+- 벡터 DB 를 일부러 다시 만들어 올릴 때는 `--skip-worktree` 를 `--no-skip-worktree` 로 바꿔 실행해 표시를 푼 뒤 커밋합니다.
+- 다른 방법: chroma_db 를 저장소 밖에 복사하고 `.env` 에 `DIARY_DB_PATH=복사한 경로` 를 적으면, 저장소 안의 파일은 아예 열리지 않습니다.
 
 ## 팀
 
