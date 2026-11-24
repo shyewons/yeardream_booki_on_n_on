@@ -170,7 +170,7 @@ npm run dev -- --host               # 터미널에 나오는 Network 주소(http
 |---|---|
 | [@shyewons](https://github.com/shyewons) | 팀장 · 일정과 팀 진행, 프로젝트 기본 구조(프론트 · 백엔드 시작), 화면 디자인 · 에셋 · 화면별 스타일, 별명 화면 연결, 문서 작성 |
 | [@hihiimj](https://github.com/hihiimj) | 맞춤법 교정 파이프라인(et5 교정 · 근거 검색(RAG) · 설명 생성), 모델 평가(`analysis/`), 문서 작성 |
-| [@taekgeun](https://github.com/taekgeun) | 별명 · 토큰, 별명 · 목장(책장) · 새 책 화면, 나의 기록(대시보드) · 의상 보상 · 옷장 |
+| [@taekgeun0816-creator](https://github.com/taekgeun0816-creator) | 별명 · 토큰, 별명 · 목장(책장) · 새 책 화면, 나의 기록(대시보드) · 의상 보상 · 옷장 |
 | [@SnNiFe](https://github.com/SnNiFe) | 입력 검사(`input_validation.py`), 책 · 글 · 문장 백엔드와 DB 설계, 글 목록 · 글 보기 · 글쓰기 화면, 책 출력, 통합 · 문서 |
 
 그 밖에도 기획 · 요구사항 정리 · 발표 준비 등은 함께 나눠 맡았습니다.
