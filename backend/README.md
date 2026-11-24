@@ -1,6 +1,8 @@
 # Backend
 
-FastAPI 서버. 책·글 목록과 저장(`/api/...`), 글쓰기 검사·교정·질문(`/validate` 등)을 맡는다.
+FastAPI 서버. 책·글 목록과 저장(`/api/...`), 글쓰기 검사·교정·질문(`/validate` 등), 보상·옷장·나의 기록, 책 출력을 맡는다.
+
+처음 받아서 DB 만들기부터 실행까지는 저장소 맨 위 [README](../README.md) 를 따라 하면 된다. 아래는 서버만 켤 때.
 
 ## 실행
 
@@ -16,7 +18,8 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 - 동화 표현 추천(`/suggest`): 모델을 켜면 `diary_pipeline/explain.py` 의 표현 생성(Kanana, 설명문과 같은 모델)으로 새 표현 2개와 한 줄 설명을 만든다.
   모델이 꺼져 있으면 `demo_nodes.py` 의 낱말표로 임시 예시를 주고, 화면에 "모델이 꺼져 있어 임의로 바꾼 예시"라는 안내가 나온다.
   언제 추천할지는 `STORY_SUGGEST_ON`(`all` 기본: 고친 문장에도 / `no_correction`: 맞춤법이 맞은 문장에만)으로 정한다.
-- DB 주소(`/api/...`)는 `backend/.env`가 있어야 한다. `.env.example`을 `.env`로 복사해 `DATABASE_URL`을 채운다. 없으면 그 주소들만 503.
+- 설명문 · 표현 추천 모델 크기: `.env` 의 `EXPLAIN_LLM=small`(기본, Kanana 1.5 2.1B) / `large`(Kanana 2 3B). 장치는 cuda → mps(맥) → cpu 순서로 자동, `MODEL_DEVICE=cpu` 로 강제 (`diary_pipeline/config.py` · `models.py`).
+- DB 주소(`/api/...`)는 `backend/.env`가 있어야 한다. `.env.example`을 `.env`로 복사해 `DATABASE_URL`을 채운다. 없으면 그 주소들만 503. 값 뒤에 ` # 주석`을 붙여도 된다(`db.py` 가 뗀다).
   - 학습용 클라우드 DB는 SSH 터널을 먼저 켠다: `ssh -N -L 3307:127.0.0.1:3306 이름@주소 -p 포트`
 - 프론트(React)는 `frontend`에서 `npm run dev`. `vite.config.js`의 프록시가 API 요청을 이 서버로 넘긴다.
 
@@ -31,12 +34,15 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `books_repo.py` | 위 주소가 쓰는 DB 쿼리. 지금 사용자(토큰 주인 또는 더미), 쪽당 개수, 시간(KST) 규칙, 문장마다 동화 주제 저장, 일기 하루치 달성(`day_done_at`) |
 | `reward_rules.py` | 보상 기준 숫자 (일기 하루 3문장 · 지난 날짜 3일 · 주 5일, 동화 장 3문장 · 장 보상 3·6·10 · 끝내기 3장 · 중간 묻기 없음(100장에서만) · 최대 100장 · 장 목록 한 쪽 10장) |
 | `progress_repo.py` | 보상 코드가 부르는 세는 함수 (주간 하루치, 동화 장 보상 구간 · 완성, 주제별 문장 수). 판단 · 받기는 하지 않는다 |
-| `db.py` | `.env` 읽기, DB 접속 |
+| `rewards_api.py` · `rewards_repo.py` | 일기 주간 선물 · 동화 장 선물 받기, 옷장(가진 옷 · 입히기). 두 번 받기는 409 |
+| `dashboard_api.py` · `dashboard_repo.py` | 나의 기록(이번 주 일기 날 수 · 고른 표현 · 다시 볼 맞춤법 · 캐릭터), 최근 고친 문장 |
+| `db.py` | `.env` 읽기(값 뒤 주석은 뗌), DB 접속, DB 오류 나누기(연결 · 잠깐 막힘 503 / 코드와 DB 불일치 500, 화면에 `DB-번호`) |
 | `writing_api.py` | `/question` `/topics` `/validate` `/correct` `/suggest` (예전 시연용 `app.py`) |
 | `demo_nodes.py` | 모델 없이 돌릴 때 쓰는 임시 노드, 동화 표현 추천 임시 낱말표 |
 | `diary_pipeline/` | 유효성 검사(`input_validation.py`)와 교정 파이프라인 |
 | `devlog.py` | 개발용 로그 (아래 '로그' 참고), `POST /log/ui` |
-| `temp/schema.sql`, `temp/seed_dummy.sql`, `temp/db_check.py` | 테이블 만들기, 더미 데이터, 접속 확인 |
+| `temp/schema.sql` · `temp/schema_rewards.sql` | 표 만들기 (글쓰기 쪽 + 동화 주제 / 보상 쪽. 보상 쪽은 팀 DB 를 `rewards_repo.py` 에 맞춰 다시 적은 정의) |
+| `temp/seed_clothes.sql` · `temp/seed_dummy.sql` · `temp/db_check.py` | 선물 옷 43벌, 더미 데이터, 접속 확인 |
 
 ## 주소
 
@@ -49,6 +55,7 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `POST /api/books` | 책 만들기 `{"kind": "diary"\|"fairy", "title": "몽실", "fairy_topic_id": 3}`. 동화 주제가 `null` 이면 자유 주제 (DB 에는 `자유 주제` 줄 번호) |
 | `PUT /api/books/{책}/topic` | 동화 주제 바꾸기 `{"fairy_topic_id": 3\|null}`. 첫 문장을 쓰기 전에만 (`books_repo.py` 의 `TOPIC_CHANGE_MAX_SENTENCES`) |
 | `GET /api/books/{책}/entries?page=1` | 글 목록(최신 날짜부터, 한 쪽 10개). `writing`: 쓰던 글, `today`: 오늘 일기 `{id, status}`(없으면 null). 동화는 장 목록(1장부터 한 쪽 10장)과 `story`(모든 장의 문장 수 · 보상 진행 · 끝내기 정보) |
+| `GET /api/books/{책}/print` | 책 출력: 책 한 권의 보이는 글과 문장을 한 번에 (동화는 1장부터, 일기는 오래된 날부터) + 주제 · 지은이 · 기간. 쪽 나누기는 화면이 한다 |
 | `GET /api/entries/{글}` | 글 하나(문장·고친 곳·이전/다음 글 번호) |
 | `GET /api/books/{책}/diary/{날짜}` | 그 날짜의 일기 |
 | `POST /api/books/{책}/entries` | 글 열기(없으면 만들기) `{"date": "2026-11-16"}`. 동화는 장: `{"chapter": 3}` / `{"new_chapter": true}` / `{}` 마지막 장 |
@@ -65,6 +72,12 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 | `POST /correct` | 교정(단계별 NDJSON) `{"original_sentence"}` |
 | `POST /suggest` | 동화 표현 추천(임시) `{"sentence"}` |
 | `POST /log/ui` | 화면 동작 기록 `{"event", "sid", "page", "data"}` |
+| `GET /api/dashboard` | 나의 기록 (이번 주 일기 날 수는 하루치 달성 `day_done_at` 기준, 일기 주간 선물 상태, 고른 표현, 다시 볼 맞춤법, 캐릭터) |
+| `GET /api/dashboard/recent-fixes` | 최근 고친 문장 (교정을 받고 아이가 직접 다시 쓴 기록) |
+| `POST /api/rewards/diary/claim` | 일기 주간 선물 받기 `{"week_start": "2026-11-16"}` |
+| `GET /api/rewards/fairy/{책}` | 동화 장 선물 상자 `stages [{order, chapters, status locked\|claimable\|claimed, clothes}]` |
+| `POST /api/rewards/fairy/{책}/claim` | 동화 장 선물 받기 `{"order": 1}` → `{clothes, fairy_reward}` |
+| `GET /api/wardrobe` · `PUT /api/wardrobe/equip` | 옷장 보기 · 입히기 `{"slot": "hat", "clothes_id": 3\|null}` |
 
 공통: 없는 것·남의 것 404, 잘못된 요청 400, 토큰 틀림 401, DB 미설정·접속 실패 503.
 사용자: 요청 헤더 `X-User-Token`의 토큰 주인(`auth.py`)이고, 자기 목장·책만 보인다. 토큰 없이 오면 더미 한 명(`dummy_user`)으로 처리한다(시험용 화면 호환). 끄려면 `ALLOW_DUMMY_USER=0`.
@@ -75,7 +88,9 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 - 유효성 기준(일기/동화): `diary_pipeline/input_validation.py` 맨 위 `KIND_RULES`, `KIND_MESSAGES`
 - 동화 주제: DB `fairy_topics` 표 (요구사항정의서 '동화주제' 10개. `prompt` 쓰기 안내, `opening` 시작 상황, `is_active = 0` 이면 추천에서 빠진다). '내가 정할래요'는 `자유 주제` 줄(꺼져 있음)을 가리킨다. 표가 비면 `writing_api.py`의 `FAIRY_TOPICS`
 - 동화 주제를 바꿀 수 있는 때: `books_repo.py`의 `TOPIC_CHANGE_MAX_SENTENCES` (0 = 첫 문장 전에만, `None` = 언제나)
-- 동화 질문 문구: `writing_api.py`의 `FAIRY_FIRST`, `FAIRY_NEXT`
+- 동화 질문 문구: `writing_api.py`의 `FAIRY_FIRST`, `FAIRY_FIRST_FREE`(자유 주제), `FAIRY_CHAPTER_START`(2장부터 첫 문장), `FAIRY_NEXT`
+- 설명문 · 표현 추천 모델: `.env` 의 `EXPLAIN_LLM` (목록은 `diary_pipeline/config.py` 의 `EXPLAIN_LLMS`), 장치 `MODEL_DEVICE`
+- 검사에서 되묻는 문구(욕설 · 개인정보 · 인젝션 등): `diary_pipeline/input_validation.py` 의 `next_question`
 - 보상 기준 숫자: `reward_rules.py`
 - RAG 벡터 DB 위치: `DIARY_DB_PATH` (예: `../analysis/chroma_db`)
 - 개발용 로그: 아래 '로그' 참고
@@ -98,4 +113,4 @@ uvicorn main:app --reload        # http://127.0.0.1:8000  (API 문서: /docs)
 
 - 전부 끄기: `DEV_LOG=0`. 폴더 바꾸기: `LOG_DIR=경로`.
 - 오래된 파일은 자동으로 지우지 않는다.
-- 화면 동작 이름은 `frontend/temp`의 `track("이름", {...})`에서 찾을 수 있다. React로 옮길 때도 같은 주소(`POST /log/ui`)로 보내면 된다.
+- 화면 동작 이름은 `frontend/src` 의 `track("이름", {...})`(`api.js`)에서 찾을 수 있다. 예전 시험용 화면 `frontend/temp` 도 같은 주소(`POST /log/ui`)로 보낸다.

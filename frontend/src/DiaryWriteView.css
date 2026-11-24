@@ -178,3 +178,21 @@ body:has(.diary-write) { margin: 0; background: var(--color-outside); }
 /* 안내 + 문장 (#shown 이 있을 때: 표현을 고른 뒤 '잘했어요!' · 검사에서 되묻는 문장): 표현 고르기의 '내가 쓴 문장'처럼 안내는 작게, 쓴 문장은 크게 (2026-11-20 낙준 추가) */
 .diary-write__notice:has(#shown) #msg { font-size: var(--font-description); }
 .diary-write__notice #shown { margin: 0; font-size: var(--font-correction); line-height: 1.5; overflow-wrap: anywhere; }
+
+/* 쪽 높이 고정 + 가운데 칸만 스크롤 (2026-11-23 낙준 추가).
+   책 쪽 높이를 책 높이(--book-height)로 고정해서, 주제 · 교정 설명 · 안내가 길어져도 책 · 화면이 늘어나지 않게 한다 (화면 키우기 배율도 흔들리지 않는다).
+   오른쪽 쪽 = 위(장 표시 · 내가 쓴 글 보기) / 가운데 칸 .diary-write__middle(주제 · 결과 · 안내 · 표현 고르기, 넘치면 이 칸만 스크롤) / 아래(입력칸 · 확인하기 · 장 이동).
+   가운데 칸은 내용이 적으면 지금과 같은 높이(늘어나지 않음), 넘칠 때만 줄어들며 스크롤한다. 안쪽의 작은 스크롤(결과 · 안내 · 주제)은 풀어서 스크롤이 겹치지 않게 했다 */
+.diary-write__page--right,
+.diary-write--spread .diary-write__page--left { height: var(--book-height); }
+.diary-write__page > :not(.diary-write__middle):not(.diary-write__history-scroll) { flex-shrink: 0; }
+.diary-write__middle { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.diary-write__middle > * { flex-shrink: 0; }
+.diary-write__middle .diary-write__result-scroll,
+.diary-write__middle .diary-write__notice,
+.diary-write__middle .fairy-write__context-scroll { max-height: none; overflow: visible; }
+.diary-write--expression .diary-write__middle { flex: 1 1 auto; }                   /* 표현 고르기: 입력칸이 없으니 남는 높이를 다 쓴다 */
+.diary-write--spread .diary-write__page--left .diary-write__history-scroll { flex: 1 1 auto; height: auto; min-height: 0; }   /* 내가 쓴 글: 남는 높이만큼 */
+/* 문장 확인 중(교정 · 설명 쓰는 중) 상자를 위 칸(주제 · 이야기)에 붙인다. 확인이 끝난 결과 · 표현 고르기와 같은 간격이라 상자가 덜 밀려서
+   가운데 칸에 더 많이 보이고, 아래가 잘려 보이면 스크롤할 수 있다는 걸 알아차리기 쉽다 (2026-11-23 낙준) */
+.diary-write__middle .diary-write__working { margin-top: 0; }

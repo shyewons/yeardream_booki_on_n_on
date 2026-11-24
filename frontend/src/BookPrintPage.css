@@ -1,0 +1,105 @@
+/* 책 출력 화면 (임시 디자인, 2026-11-20 낙준). 배경 · 책 그림은 글쓰기 화면(DiaryWriteView)과 같은 에셋을 쓴다.
+   쪽 상자 크기(--page-w · --page-h)는 BookPrintPage.jsx 의 PAGE_W · PAGE_H 와 같아야 한다 (쪽 나누기가 이 크기로 잰다). */
+
+body:has(.book-print) { margin: 0; background: var(--color-outside); }
+.book-print {
+    --page-w: 400px;
+    --page-h: 360px;
+    --book-w: 984px;                       /* 펼친 책 그림 너비 (그림 비율 1942 × 809) */
+    position: relative;
+    box-sizing: border-box;
+    width: 1024px;
+    max-width: 100%;
+    min-height: 768px;
+    margin-inline: auto;
+    padding: 16px 20px 24px;
+    overflow: clip;
+    background: #bce580 url('./assets/backgrounds/farm-meadow.png') center / cover no-repeat;
+}
+.book-print *, .book-print *::before, .book-print *::after { box-sizing: border-box; }
+
+.book-print__topbar { display: flex; align-items: center; justify-content: space-between; height: 56px; padding-inline: 4px; }
+.book-print__state { display: grid; place-items: center; min-height: 400px; text-align: center; }
+
+/* 펼친 책 + 두 쪽 */
+.book-print__book { position: relative; width: var(--book-w); aspect-ratio: 1942 / 809; margin: 40px auto 0; }
+.book-print__paper { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+.book-print__slot { position: absolute; top: 24px; width: var(--page-w); height: var(--page-h); }
+.book-print__slot--left { left: 58px; }
+.book-print__slot--right { left: 524px; }
+
+/* 책 끝을 누르면 넘기기 (보이지 않는 버튼, 마우스를 올리면 살짝 어둡게) */
+.book-print__edge { position: absolute; top: 0; bottom: 0; width: 56px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.book-print__edge--prev { left: 0; border-radius: 24px 0 0 24px; }
+.book-print__edge--next { right: 0; border-radius: 0 24px 24px 0; }
+.book-print__edge:hover:not(:disabled) { background: #6b4a1a14; }
+.book-print__edge:disabled { cursor: default; }
+
+.book-print__pager { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; font-size: var(--font-description); font-weight: var(--weight-semibold); }
+.book-print__pager span { min-width: 200px; padding: 6px 18px; border-radius: var(--radius-pill); background: #fffaf0e6; text-align: center; }
+
+/* 쪽 상자 (화면 · 쪽 나누기 · 인쇄가 모두 같은 크기) */
+.book-print__page {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: var(--page-w);
+    height: var(--page-h);
+    padding: 14px 20px 22px;
+    color: var(--color-text);
+    font-family: inherit;
+}
+/* 글은 줄 칸에 맞춘다: 글자 22px · 한 줄 34px, 제목 없는 쪽 9줄 · 제목 있는 쪽 8줄 (쪽 안쪽 높이 324px = 360 - 위 14 - 아래 22. 제목 칸 34 + 8).
+   아이 문장은 짧아서(대개 한 줄 안팎) 글자를 크게 하고 줄 수를 줄였다. PDF 에서는 2.2배라 약 36pt (2026-11-22)
+   글이 줄 수보다 적으면 남는 줄을 위아래로 나눠 가운데에 놓는다 (장 제목은 맨 위 그대로) */
+.book-print__page { --line: 34px; --lines: 9; }
+.book-print__page--headed { --lines: 8; }
+.book-print__page-head { flex-shrink: 0; margin: 0 0 8px; font-size: 24px; line-height: var(--line); font-weight: var(--weight-bold); }
+.book-print__page-body { flex: none; display: flex; flex-direction: column; justify-content: center; height: calc(var(--line) * var(--lines)); overflow: hidden; }
+.book-print__page-body p { margin: 0; font-size: 22px; line-height: var(--line); overflow-wrap: anywhere; }
+/* 문장 사이는 반 줄(17px) 띄운다. 이만큼 한 쪽에 들어가는 문장이 줄지만, 쪽 나누기는 실제 높이로 재므로 따로 맞출 것은 없다.
+   더 띄우려면 0.5 를 키운다 (1 = 문장 사이에 빈 줄 하나) */
+.book-print__page-body p + p { margin-top: calc(var(--line) * 0.5); }
+.book-print__page-no { position: absolute; bottom: 2px; left: 0; right: 0; color: var(--color-muted); font-size: 13px; text-align: center; }
+
+.book-print__page--cover { align-items: center; justify-content: center; gap: 6px; text-align: center; }
+.book-print__kind { margin: 0; padding: 2px 18px; border-radius: var(--radius-pill); background: #e4ed9b; font-size: 15px; font-weight: var(--weight-semibold); }
+.book-print__title { margin: 4px 0 0; font-size: 30px; font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.book-print__animal { width: 120px; height: 120px; object-fit: contain; }
+.book-print__owner { margin: 0; font-size: 17px; }
+.book-print__period { margin: 0; color: var(--color-muted); font-size: 13px; }
+
+.book-print__page--intro { justify-content: center; gap: 10px; text-align: center; }
+.book-print__intro-label { margin: 0; color: var(--color-muted); font-size: 15px; }
+.book-print__intro-title { margin: 0; font-size: 24px; font-weight: var(--weight-bold); }
+.book-print__intro-text { margin: 0; font-size: 17px; line-height: 1.6; overflow-wrap: anywhere; }
+.book-print__intro-count { margin: 8px 0 0; color: var(--color-muted); font-size: 14px; }
+
+/* 쪽 나누기용 (화면 밖) · 인쇄용 (화면에서는 숨김) */
+.book-print__measure { position: fixed; top: 0; left: -10000px; visibility: hidden; pointer-events: none; }
+.book-print__measure .book-print__page-body { display: block; }      /* 잴 때는 위에서부터 쌓아야 넘침(scrollHeight)이 정확하다 */
+.book-print__all { display: none; }
+
+/* 인쇄: A4 가로 한 장에 쪽 하나. 쪽 상자를 통째로 키워서(줄바꿈은 화면과 같다) 종이 가운데에 놓는다.
+   400 × 360 쪽 → A4 가로(1123 × 794px)에 맞게 2.2배 (쪽 크기를 바꾸면 이 배율도: min(1123 / 가로, 794 / 세로)) */
+@page { size: A4 landscape; margin: 0; }
+@media print {
+    body:has(.book-print) { background: #fff; }
+    .book-print { width: auto; min-height: 0; padding: 0; background: none; overflow: visible; }
+    .book-print > :not(.book-print__all) { display: none !important; }
+    .book-print__all { display: block; }
+    .book-print__sheet {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 297mm;
+        height: 209mm;                     /* 210mm 이면 브라우저에 따라 빈 종이가 한 장씩 끼어서 조금 줄인다 */
+        overflow: hidden;
+        break-after: page;
+        background: #fffaf0;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+    .book-print__sheet:last-child { break-after: auto; }
+    .book-print__sheet .book-print__page { flex-shrink: 0; transform: scale(2.2); }
+}

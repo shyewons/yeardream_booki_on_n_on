@@ -39,7 +39,10 @@
 }
 
 /* 문장 목록: 글쓰기 화면의 '내가 쓴 글'보다 조금 길게 (입력칸이 없어서) */
-.post-detail__scroll { flex: 1; height: auto; max-height: 440px; }
+/* 책 왼쪽 쪽 높이를 책 높이(--book-height)로 고정하고, 문장 목록이 남는 높이를 채운 뒤 안에서 스크롤한다.
+   (예전에는 최대 440px 로 정해서, 앞 장 끝 문장 · 저장 안내가 같이 있으면 쪽이 넘쳐 화면이 아래로 늘어났다. 2026-11-23) */
+.post-detail .diary-write__page--left { height: var(--book-height); }
+.post-detail__scroll { flex: 1; min-height: 0; height: auto; max-height: none; }
 .post-detail__scroll .text { margin: 4px 0 0; line-height: 1.5; }
 .post-detail__empty, .post-detail__state { display: grid; place-items: center; min-height: 300px; text-align: center; }
 

@@ -603,7 +603,8 @@ def next_question(insp: PreprocessInspection, kind: Optional[str] = None) -> str
     if insp.injection_spans:
         quote = insp.injection_spans[0]["text"]
         quote = quote if len(quote) <= 20 else quote[:20] + "…"
-        return f"표시된 '{quote}' 부분을 요정이 잘 못 알아들었어요. 이 부분을 다른 말로 바꿔서 다시 적어볼까요?"
+        # 앱에 '요정'이 나오지 않아 빼고, 못 알아들은 게 아니라 쓸 수 없는 말이라고 알려 준다 (2026-11-23)
+        return f"표시된 '{quote}' 부분은 여기에 쓸 수 없는 말이에요. 이 부분을 다른 말로 바꿔서 다시 적어볼까요?"
     if insp.pii_spans:
         kinds = ", ".join(dict.fromkeys(PII_LABEL[s["kind"]] for s in insp.pii_spans))
         return say(kind, "pii", "개인정보({kinds})는 일기에 쓰지 않아요. 표시된 부분을 빼거나 다른 말로 바꿔서 다시 적어볼까요?").format(kinds=kinds)

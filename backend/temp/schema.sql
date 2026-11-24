@@ -2,6 +2,8 @@
 -- 구조: users 1:N books 1:N entries 1:N sentences 1:N corrections
 -- 이름은 초안이라 바뀔 수 있음. 바꾸면 이 파일만 고쳐서 다시 실행.
 -- 보상 쪽 표(clothes, user_clothes, user_equipped_clothes, reward_claims)는 팀원이 DB 에 직접 만들었고 여기에는 없다.
+--   새로 만들 때는 이 파일 다음에 temp/schema_rewards.sql 을 실행한다 (코드에 맞춰 다시 적은 정의, 2026-11-23).
+--   이 파일을 다시 실행하려면 schema_rewards.sql 맨 위의 DROP 네 줄을 먼저 실행한다 (보상 표가 users · books 를 가리켜서).
 -- fairy_topics 는 sentences 가 참조해서 아래에 적어 두었다 (칸은 DB 와 같게. 정확한 정의는 SHOW CREATE TABLE fairy_topics 로 확인).
 -- 시각 규칙: DB 서버는 UTC라서 *_at 값은 앱이 한국 시간(Asia/Seoul)으로 직접 만들어 넣는다.
 --            (DBeaver에서 직접 넣을 땐 먼저 SET time_zone = '+09:00'; 를 실행)
