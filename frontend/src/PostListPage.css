@@ -46,6 +46,7 @@ body:has(.post-list) {
 .post-list__toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 40px; min-height: 64px; margin-bottom: 8px; }
 .post-list__toolbar > p { margin: 0; font-weight: 500; }
 .post-list__write-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.post-list--fairy .post-list__write-actions { grid-column: 2; }
 .post-list__write-actions .ui-button { width: 100%; min-height: 56px; padding: 8px; }
 
 .post-list__rows { display: grid; grid-template-rows: repeat(5, 56px); grid-auto-flow: column; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 40px; list-style: none; margin: 0; padding: 0; }
@@ -160,5 +161,16 @@ button.post-list__reward-stop { padding: 0; border: none; background: none; colo
 @keyframes post-list-gift { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px) rotate(-6deg); } }
 @media (prefers-reduced-motion: reduce) { .post-list__reward-stop.is-claimable img { animation: none; } }
 
-/* 책 출력하기 버튼: 왼쪽 위 '목장으로'와 마주 보는 오른쪽 위 (2026-11-20 낙준 추가) */
-.post-list__print { position: absolute; top: 0; right: 0; }
+.post-list__gift-preview {
+    display: flex;
+    width: 160px;
+    height: 160px;
+    margin: 0 auto 16px;
+}
+
+/* 책 출력하기 버튼: 오른쪽 위 */
+.post-list__print {
+    position: absolute;
+    top: 0;
+    right: 0;
+}

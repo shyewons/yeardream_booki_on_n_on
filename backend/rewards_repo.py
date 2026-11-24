@@ -20,8 +20,8 @@
 
 동화 구간 보상 (FR-040)
   - 같은 책에서 3문장 이상 쓴 장 수가 STORY_REWARD_CHAPTERS(3 · 6 · 10)에 닿으면 그 구간을 받을 수 있다
-  - 옷은 책의 동화 주제에 연결된 세트의 구성품. 자유 주제('내가 정할래요')도 주제 하나로 보고 세트를 준다
-    (주제가 NULL 인 옛 책도 books_repo 규칙대로 자유 주제로 본다). 주제에 옷이 없으면 clothes = None 이고 받을 수 없다
+  - 옷은 책의 동화 주제에 연결된 세트의 구성품. 자유 주제('내가 정할래요')는 보상을 제공하지 않는다
+    (주제가 NULL 인 옛 책도 포함). 추천 주제에 옷이 없으면 clothes = None 이고 받을 수 없다
   - 받는 순간 reward_claims 에 적는다 (책 · 구간이 정해져 있어 미리 적어 둘 필요가 없다)
 
 공통
@@ -29,11 +29,12 @@
   - 문장을 지워서 날짜 · 장 수가 줄어도 이미 받은 보상은 그대로 둔다 (progress_repo 주석과 같은 규칙)
 """
 import datetime
+import re
 
 import db
 import progress_repo
 import reward_rules as rules
-from books_repo import BadRequest, _as_date, _now_str
+from books_repo import BadRequest, _as_date, _book_topic, _now_str
 
 SLOTS = ("top", "bottom", "hat", "shoes", "gloves")
 SLOT_LABEL = {"top": "상의", "bottom": "하의", "hat": "모자", "shoes": "신발", "gloves": "장갑"}
@@ -162,14 +163,9 @@ def claim_diary(user_id, week_start):
 
 # ── 동화 구간 보상 ──
 
-def _free_topic_id():
-    """자유 주제('내가 정할래요') 줄 번호. 없으면 None. books_repo.FREE_TOPIC_TITLE 과 같이 띄어쓰기를 빼고 비교한다."""
-    rows = db.query("SELECT MIN(id) AS id FROM fairy_topics WHERE REPLACE(title, ' ', '') = '자유주제'")
-    return rows[0]["id"] if rows else None
-
-
 def fairy_reward(user_id, book_id):
     """동화책 한 권의 보상 진행 (FR-040 · FR-045, 장 목록 화면에서 쓴다). 내 동화책이 아니면 None.
+      enabled    자유 주제는 False (stages 는 빈 목록, next 는 None)
       qualified  3문장 이상 쓴 장 수
       stages     [{order, chapters, status, clothes}] status: locked / claimable / claimed
       next       다음 보상까지 {chapters, remaining}. 모든 구간을 채웠으면 None"""
@@ -179,16 +175,17 @@ def fairy_reward(user_id, book_id):
         return None
     prog = progress_repo.story_progress(user_id, book_id)
     qualified = prog["qualified"] if prog else 0
+    # 글쓰기와 같은 주제 판정: 자유 주제 줄과 예전 NULL 주제 모두 보상에서 제외한다.
+    topic = _book_topic(db, book_id)
+    if topic is None:
+        return {"book_id": book_id, "enabled": False, "qualified": qualified, "stages": [], "next": None}
     claimed = {r["reward_order"]: r for r in db.query(
         """SELECT r.reward_order, r.claimed_at, c.id, c.name, c.slot, c.image_url
              FROM reward_claims r JOIN clothes c ON c.id = r.clothes_id
             WHERE r.book_id = :bid AND r.reward_kind = 'fairy'""", {"bid": book_id})}
-    topic = book[0]["fairy_topic_id"]
-    if topic is None:                       # 자유 주제 줄이 없을 때 만든 책: NULL 도 자유 주제로 본다 (books_repo 주석)
-        topic = _free_topic_id()
-    sets ={r["reward_order"]: r for r in db.query(
+    sets = {r["reward_order"]: r for r in db.query(
         """SELECT reward_order, id, name, slot, image_url FROM clothes
-            WHERE reward_kind = 'fairy' AND fairy_topic_id = :t""", {"t": topic})} if topic else {}
+            WHERE reward_kind = 'fairy' AND fairy_topic_id = :t""", {"t": topic["id"]})}
     stages = []
     for order, chapters in enumerate(rules.STORY_REWARD_CHAPTERS, start=1):
         if order in claimed:
@@ -198,7 +195,7 @@ def fairy_reward(user_id, book_id):
         stages.append({"order": order, "chapters": chapters, "status": status,
                        "clothes": _clothes(row) if row else None})
     nxt = next((c for c in rules.STORY_REWARD_CHAPTERS if c > qualified), None)
-    return {"book_id": book_id, "qualified": qualified, "stages": stages,
+    return {"book_id": book_id, "enabled": True, "qualified": qualified, "stages": stages,
             "next": {"chapters": nxt, "remaining": nxt - qualified} if nxt else None}
 
 
@@ -213,6 +210,8 @@ def claim_fairy(user_id, book_id, order):
     info = fairy_reward(user_id, book_id)
     if info is None:
         return None
+    if not info["enabled"]:
+        raise BadRequest("자유 주제에는 선물이 없어요.")
     stage = info["stages"][order - 1]
     if stage["status"] == "claimed":
         raise AlreadyClaimed("이미 받은 선물이에요.")
@@ -294,7 +293,7 @@ def wardrobe(user_id):
 
 
 def equip(user_id, slot, clothes_id):
-    """옷 입히기 · 벗기기. clothes_id 가 None 이면 그 부위를 벗긴다. 다른 부위는 그대로 둔다."""
+    """부위별 착용. 하의를 입을 때만 기존 한 벌 상의를 함께 해제한다."""
     if slot not in SLOTS:
         raise BadRequest("없는 부위예요.")
     if clothes_id is not None:
@@ -310,7 +309,20 @@ def equip(user_id, slot, clothes_id):
         if own[0]["slot"] != slot:
             raise BadRequest(f"이 옷은 {SLOT_LABEL[own[0]['slot']]}예요.")
     col = f"{slot}_clothes_id"              # slot 은 위에서 SLOTS 로 확인했다
-    db.run_in_transaction(lambda tx: tx.execute(
-        f"""INSERT INTO user_equipped_clothes (user_id, {col}) VALUES (:uid, :cid)
-            ON DUPLICATE KEY UPDATE {col} = :cid""", {"uid": user_id, "cid": clothes_id}))
+    def work(tx):
+        changes = f"{col} = :cid"
+        if slot == "bottom" and clothes_id is not None:
+            current = tx.query(
+                """SELECT c.image_url FROM user_equipped_clothes e
+                     LEFT JOIN clothes c ON c.id = e.top_clothes_id
+                    WHERE e.user_id = :uid FOR UPDATE""", {"uid": user_id})
+            image_url = current[0]["image_url"] if current else None
+            # 에셋 가이드의 outfit-*는 상하의 한 벌. 이전 하의는 한 벌 착용 중에도 보관한다.
+            if image_url and re.fullmatch(r"/images/wardrobe/story/[0-9]{2}-[a-z0-9-]+/outfit-[a-z0-9-]+\.png", image_url):
+                changes += ", top_clothes_id = NULL"
+        tx.execute(
+            f"""INSERT INTO user_equipped_clothes (user_id, {col}) VALUES (:uid, :cid)
+                ON DUPLICATE KEY UPDATE {changes}""", {"uid": user_id, "cid": clothes_id})
+
+    db.run_in_transaction(work)
     return {"character": character(user_id)}
